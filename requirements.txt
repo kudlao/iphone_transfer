@@ -1,0 +1,4 @@
+Pillow>=11.0,<13
+pillow-heif>=1.0,<2
+pywin32>=306; sys_platform == "win32"
+customtkinter>=5.2,<6

@@ -1,0 +1,22 @@
+# Python and tests
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.build-venv/
+.venv/
+venv/
+# Build outputs
+build/
+dist/
+*.spec
+# Device files and local exports
+native/
+*.part
+.hushphoto-staging/
+exports/
+photos/
+previews/
+# Local environment and logs
+.env
+.env.*
+*.log
