@@ -11,7 +11,7 @@ import customtkinter as ctk
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from main import IMAGE_EXTS, VIDEO_EXTS, ExportOptions, export_directory
-from media_groups import group_suffixes, selected_paths_for_group
+from media_groups import group_suffixes
 
 register_heif_opener()
 ctk.set_appearance_mode('dark')
@@ -104,6 +104,7 @@ class App(ctk.CTk):
         # Selection is confined to the current group: a video-only export never copies photos.
         self.selected=set(self.visible_group_paths())
         self.preview_offset=0
+        self.preview_btn.configure(state='disabled' if self.group.get()=='Видео' else 'normal')
         self.draw_tiles()
 
     def visible_group_paths(self):
@@ -166,7 +167,7 @@ class App(ctk.CTk):
             visible=[x for x in self.usb_items if x['suffix'] in group_suffixes(self.group.get()) and needle in x['name'].casefold()]
             self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} в группе «{self.group.get()}»')
             if not visible:
-                ctk.CTkLabel(self.preview,text='Подключи и разблокируй iPhone, затем нажми «Обновить».\nФайлы iCloud могут быть недоступны.',text_color=MUTED,justify='center').pack(pady=80)
+                ctk.CTkLabel(self.preview,text='В выбранной группе файлов пока нет. Подключи iPhone и нажми «Обновить».\nФайлы iCloud могут быть недоступны.',text_color=MUTED,justify='center').pack(pady=80)
                 return
             self.thumbnails=[]
             for i,x in enumerate(visible[:160]):
@@ -263,7 +264,7 @@ class App(ctk.CTk):
         if not dialog.result:return
         opts=dialog.result; chosen=set(self.selected).intersection(set(self.visible_group_paths())); usb=self.usb.get()
         self.cancel_event.clear(); self.running=True; self.go.configure(state='disabled');self.cancel_btn.configure(state='normal');self.progress.set(0)
-        self.start_clock=time.monotonic();self.last_sample=None;self.speed=None;self.status.configure(text='Начинаем перенос…')
+        self.start_clock=time.monotonic();self.last_sample=None;self.speed=None;self.status.configure(text='Начинаем перенос выбранных '+('видео…' if self.group.get()=='Видео' else 'фотографий…'))
         def worker():
             try:
                 dest.mkdir(parents=True,exist_ok=True)
