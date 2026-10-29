@@ -19,11 +19,19 @@ ctk.set_default_color_theme('blue')
 BG='#10131b'; PANEL='#1a2030'; ALT='#242c3e'; FG='#f3f6ff'; MUTED='#a6afc2'; ACC='#6786ef'
 
 class Settings(ctk.CTkToplevel):
-    def __init__(self, parent):
+    def __init__(self, parent, video=False):
         super().__init__(parent)
-        self.title('Настройки экспорта'); self.geometry('540x610'); self.resizable(False,False)
+        self.title('Настройки экспорта видео' if video else 'Настройки экспорта'); self.geometry('540x610'); self.resizable(False,False)
         self.result=None; self.mode=tk.StringVar(value='both'); self.quality=tk.IntVar(value=97); self.mov=tk.BooleanVar(value=True); self.folders=tk.StringVar(value='Оригинальная структура')
         self.configure(fg_color=BG)
+        if video:
+            self.geometry('540x270')
+            ctk.CTkLabel(self,text='Экспорт видео',font=('Segoe UI',23,'bold')).pack(anchor='w',padx=26,pady=(24,9))
+            ctk.CTkLabel(self,text='MOV и MP4 копируются без перекодирования, с исходным качеством.',text_color=MUTED,wraplength=470).pack(anchor='w',padx=26,pady=(4,14))
+            ctk.CTkOptionMenu(self,values=['Оригинальная структура','По годам и месяцам (2026-10)','Без разделения на папки'],variable=self.folders).pack(fill='x',padx=27,pady=(8,8))
+            ctk.CTkButton(self,text='Начать экспорт видео',height=42,command=self.confirm_video).pack(fill='x',padx=27,pady=(12,12))
+            self.transient(parent); self.grab_set(); self.focus_set()
+            return
         ctk.CTkLabel(self,text='Параметры экспорта',font=('Segoe UI',23,'bold')).pack(anchor='w',padx=26,pady=(24,9))
         ctk.CTkLabel(self,text='Формат фотографий',text_color=MUTED).pack(anchor='w',padx=26,pady=(10,5))
         for value,label in [('both','Оригинал + JPEG — рекомендуется'),('original','Только оригиналы'),('jpeg','Только JPEG'),('tiff','TIFF — без дополнительного сжатия с потерями')]:
@@ -35,6 +43,11 @@ class Settings(ctk.CTkToplevel):
         ctk.CTkOptionMenu(self,values=['Оригинальная структура','По годам и месяцам (2026-10)','Без разделения на папки'],variable=self.folders).pack(fill='x',padx=27,pady=(8,6))
         ctk.CTkButton(self,text='Начать экспорт',height=42,command=self.confirm).pack(fill='x',padx=27,pady=(6,12))
         self.transient(parent); self.grab_set(); self.focus_set()
+    def confirm_video(self):
+        self.result=ExportOptions('original',97,False)
+        self.result_folders=('year-month' if self.folders.get().startswith('По годам') else 'flat' if self.folders.get().startswith('Без разделения') else 'original')
+        self.destroy()
+
     def change_q(self, v):
         self.quality.set(int(round(v))); self.qLabel.configure(text=f'Качество JPEG: {self.quality.get()}')
     def confirm(self):
@@ -169,7 +182,7 @@ class App(ctk.CTk):
                         self.thumbnails.append(thumb)
                         ctk.CTkLabel(tile,image=thumb,text='').pack(pady=(8,2))
                     except Exception:ctk.CTkLabel(tile,text=x['suffix'].upper(),height=114).pack(pady=(8,2))
-                else:ctk.CTkLabel(tile,text=x['suffix'].upper()+'\nОжидает загрузки',height=114,text_color=MUTED).pack(pady=(8,2))
+                else:ctk.CTkLabel(tile,text=x['suffix'].upper()+('\\nОригинал видео' if self.group.get()=='Видео' else '\\nОжидает загрузки'),height=114,text_color=MUTED).pack(pady=(8,2))
                 check=ctk.CTkCheckBox(tile,text=x['name'][:22],width=150,font=('Segoe UI',10),onvalue=True,offvalue=False)
                 check.pack(padx=8,pady=6)
                 check.select() if key in self.selected else check.deselect()
@@ -246,7 +259,7 @@ class App(ctk.CTk):
         dest=Path(self.target.get()); source=Path(self.source.get()) if self.source.get() else None
         if not self.usb.get() and (dest.resolve()==source.resolve() or dest.resolve() in source.resolve().parents or source.resolve() in dest.resolve().parents):
             messagebox.showerror('Небезопасная папка','Исходная и целевая папки не должны пересекаться.');return
-        dialog=Settings(self); self.wait_window(dialog)
+        dialog=Settings(self,video=self.group.get()=='Видео'); self.wait_window(dialog)
         if not dialog.result:return
         opts=dialog.result; chosen=set(self.selected).intersection(set(self.visible_group_paths())); usb=self.usb.get()
         self.cancel_event.clear(); self.running=True; self.go.configure(state='disabled');self.cancel_btn.configure(state='normal');self.progress.set(0)
