@@ -16,6 +16,7 @@ from pillow_heif import register_heif_opener
 register_heif_opener()
 IMAGE_EXTS = {'.heic', '.heif', '.jpg', '.jpeg', '.png', '.tif', '.tiff'}
 HEIC_EXTS = {'.heic', '.heif'}
+VIDEO_EXTS = {'.mov', '.mp4'}
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,7 @@ def convert_image(source: Path, dest: Path, kind: str, quality: int):
 
 
 def export_directory(source_dir: Path, dest_dir: Path, options: ExportOptions, reporter, cancel_event=None, selected_paths=None, folder_mode='original'):
-    pictures = sorted(p for p in source_dir.rglob('*') if p.is_file() and p.suffix.lower() in IMAGE_EXTS and (selected_paths is None or p in selected_paths))
+    pictures = sorted(p for p in source_dir.rglob('*') if p.is_file() and p.suffix.lower() in (IMAGE_EXTS | VIDEO_EXTS) and (selected_paths is None or p in selected_paths))
     failures = []
     processed = 0
     copied_mov = set()
@@ -97,6 +98,12 @@ def export_directory(source_dir: Path, dest_dir: Path, options: ExportOptions, r
             folder = dest_dir / rel.parent
         folder.mkdir(parents=True, exist_ok=True)
         try:
+            if source.suffix.lower() in VIDEO_EXTS:
+                # Videos are copied byte-for-byte, regardless of the photo conversion mode.
+                shutil.copy2(source, unique_path(folder / source.name))
+                processed += 1
+                reporter(index, len(pictures), source.name)
+                continue
             if options.mode in {'both', 'original'}:
                 shutil.copy2(source, unique_path(folder / source.name))
             if options.mode in {'both', 'jpeg', 'tiff'}:
@@ -121,7 +128,7 @@ def export_directory(source_dir: Path, dest_dir: Path, options: ExportOptions, r
             failures.append(f'{source}: {exc}')
         reporter(index, len(pictures), source.name)
     report = unique_path(dest_dir / 'export_report.txt')
-    report.write_text(f'Export: {datetime.now().isoformat(timespec="seconds")}\nMode: {options.mode}\nJPEG quality: {options.quality}\nCopy MOV: {options.copy_mov}\nImages processed: {processed}/{len(pictures)}\nCancelled: {cancelled}\nFailures: {len(failures)}\n' + '\n'.join(failures), encoding='utf-8')
+    report.write_text(f'Export: {datetime.now().isoformat(timespec="seconds")}\nMode: {options.mode}\nJPEG quality: {options.quality}\nCopy MOV: {options.copy_mov}\nFiles processed: {processed}/{len(pictures)}\nCancelled: {cancelled}\nFailures: {len(failures)}\n' + '\n'.join(failures), encoding='utf-8')
     return processed, len(pictures), failures, cancelled
 
 
