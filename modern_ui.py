@@ -177,7 +177,8 @@ class App(ctk.CTk):
         for w in self.preview.winfo_children(): w.destroy()
         if self.usb.get():
             needle=self.search.get().casefold().strip()
-            visible=[x for x in self.usb_items if x['path'] in set(self.visible_group_paths()) and needle in x['name'].casefold()]
+            group_paths=set(self.visible_group_paths())
+            visible=[x for x in self.usb_items if x['path'] in group_paths and needle in x['name'].casefold()]
             self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} в группе «{self.group.get()}»')
             if not visible:
                 ctk.CTkLabel(self.preview,text='В выбранной группе файлов пока нет. Подключи iPhone и нажми «Обновить».\nФайлы iCloud могут быть недоступны.',text_color=MUTED,justify='center').pack(pady=80)
@@ -204,7 +205,8 @@ class App(ctk.CTk):
             for c in range(4):self.preview.grid_columnconfigure(c,weight=1)
             if len(visible)>160:ctk.CTkLabel(self.preview,text='Первые 160 файлов — уточни поиск',text_color=MUTED).grid(row=41,column=0,columnspan=4)
             return
-        needle=self.search.get().casefold().strip(); visible=[p for p in self.entries if p in set(self.visible_group_paths()) and needle in p.name.casefold()]
+        needle=self.search.get().casefold().strip(); group_paths=set(self.visible_group_paths())
+        visible=[p for p in self.entries if p in group_paths and needle in p.name.casefold()]
         self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} в группе «{self.group.get()}»')
         if not visible:
             ctk.CTkLabel(self.preview,text='Здесь появятся файлы выбранной группы после выбора папки',text_color=MUTED).pack(pady=95); return
