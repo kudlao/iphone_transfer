@@ -309,12 +309,13 @@ class App(ctk.CTk):
                 token,items,count=v
                 if token==self.scan_token:
                     self.usb_items.extend(items)
-                    self.selected.update(x['path'] for x in items if x['suffix'] in group_suffixes(self.group.get()))
+                    self.selected=set(self.visible_group_paths())
                     self.status.configure(text=f'Найдено {count} файлов, сканирование продолжается…')
                     draw_needed=True
             elif kind=='usb_scan_done':
                 if v==self.scan_token:
                     self.usb_scanning=False
+                    self.selected=set(self.visible_group_paths())
                     self.progress.stop();self.progress.configure(mode='determinate');self.progress.set(0)
                     self.percentage.configure(text='Готово')
                     self.status.configure(text=f'Найдено {len(self.usb_items)} файлов. Загружаем первые миниатюры…')
