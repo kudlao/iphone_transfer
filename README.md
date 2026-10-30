@@ -1,5 +1,7 @@
 # Hush Photo — инструкция (Windows 10/11 x64)
 
+[Русский](README.md) | [English](README_EN.md) | [简体中文](README_ZH.md)
+
 Бесплатный экспорт фотографий, видео и Live Photos с iPhone через USB (AFC) или из папки на компьютере. Исходные файлы на iPhone не изменяются.
 
 ## 1. Подготовка
