@@ -20,6 +20,22 @@ class MediaGroupTests(unittest.TestCase):
         self.assertEqual(selected_paths_for_group(items, 'Видео'), {'DCIM/100APPLE/IMG_1.MOV','DCIM/100APPLE/VID_2.MP4'})
         self.assertTrue(group_suffixes('Фото').isdisjoint(group_suffixes('Видео')))
 
+    def test_video_subgroups_and_same_folder(self):
+        from media_groups import video_category, matches_video_filter
+        items=[
+            {'path':'DCIM/100APPLE/IMG_1.HEIC','suffix':'.heic'},
+            {'path':'DCIM/100APPLE/IMG_1.MOV','suffix':'.mov'},
+            {'path':'DCIM/100APPLE/VID_2.MOV','suffix':'.mov'},
+            {'path':'DCIM/200APPLE/VID_2.HEIC','suffix':'.heic'},
+            {'path':'DCIM/100APPLE/CLIP.MP4','suffix':'.mp4'},
+        ]
+        self.assertEqual(video_category(items[1],items),'Live Photos')
+        self.assertEqual(video_category(items[2],items),'Видеоролики')
+        self.assertEqual(video_category(items[4],items),'Видеоролики')
+        self.assertTrue(matches_video_filter(items[1],items,'Live Photos'))
+        self.assertFalse(matches_video_filter(items[1],items,'Видеоролики'))
+        self.assertTrue(matches_video_filter(items[4],items,'Все видео'))
+
     def test_local_video_only_does_not_copy_photos(self):
         with TemporaryDirectory() as tmp:
             src=Path(tmp)/'src'; dst=Path(tmp)/'dst'
