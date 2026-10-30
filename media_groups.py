@@ -1,9 +1,10 @@
-"""Media group rules for the Hush Photo picker.
+"""Fast media classification for the Hush Photo picker.
 
-MOV files belonging to Live Photos are also listed under Videos so users can
-independently back up every video file if they choose. Group selections never
-implicitly include files from the other group.
+A MOV paired with a photo of the same stem in the same directory is classified
+as Live Photos. This is a filename heuristic, not Apple asset-id verification.
 """
+from pathlib import PurePosixPath
+
 PHOTO_SUFFIXES=frozenset({'.heic','.heif','.jpg','.jpeg','.png','.dng','.tif','.tiff'})
 VIDEO_SUFFIXES=frozenset({'.mov','.mp4'})
 
@@ -12,26 +13,27 @@ def group_suffixes(group):
 
 def selected_paths_for_group(items, group):
     suffixes=group_suffixes(group)
-    return {x['path'] for x in items if x['suffix'] in suffixes}
+    return {x['path'] for x in items if x['suffix'].lower() in suffixes}
 
-def is_live_photo_video(item, items):
-    """A same-stem photo in the same DCIM directory suggests a Live Photo MOV.
+def photo_pair_index(items):
+    """Build once in O(n), then use O(1) per video instead of scanning all items."""
+    result=set()
+    for item in items:
+        p=PurePosixPath(item['path'])
+        if p.suffix.lower() in PHOTO_SUFFIXES:
+            result.add((str(p.parent).casefold(),p.stem.casefold()))
+    return result
 
-    Conservative filename heuristic, not a definitive Apple asset identifier.
-    """
-    from pathlib import PurePosixPath
+def is_live_photo_video(item, items=None, photo_index=None):
     p=PurePosixPath(item['path'])
     if p.suffix.lower() != '.mov':
         return False
-    return any(
-        PurePosixPath(other['path']).parent == p.parent
-        and PurePosixPath(other['path']).stem.casefold() == p.stem.casefold()
-        and other['suffix'].lower() in PHOTO_SUFFIXES
-        for other in items
-    )
+    if photo_index is None:
+        photo_index=photo_pair_index(items or [])
+    return (str(p.parent).casefold(),p.stem.casefold()) in photo_index
 
-def video_category(item, items):
-    return 'Live Photos' if is_live_photo_video(item, items) else 'Видеоролики'
+def video_category(item, items=None, photo_index=None):
+    return 'Live Photos' if is_live_photo_video(item,items,photo_index) else 'Видеоролики'
 
-def matches_video_filter(item, items, video_filter):
-    return video_filter == 'Все видео' or video_category(item, items) == video_filter
+def matches_video_filter(item, items, video_filter, photo_index=None):
+    return video_filter == 'Все видео' or video_category(item,items,photo_index) == video_filter
