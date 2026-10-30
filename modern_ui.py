@@ -11,7 +11,7 @@ import customtkinter as ctk
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from main import IMAGE_EXTS, VIDEO_EXTS, ExportOptions, export_directory
-from media_groups import group_suffixes
+from media_groups import group_suffixes, matches_video_filter, video_category
 
 register_heif_opener()
 ctk.set_appearance_mode('dark')
@@ -58,7 +58,7 @@ class App(ctk.CTk):
         super().__init__()
         self.title('Hush Photo · Windows'); self.geometry('1170x780'); self.minsize(900,620); self.configure(fg_color=BG)
         self.source=tk.StringVar(); self.target=tk.StringVar(); self.usb=tk.BooleanVar(value=False)
-        self.group=tk.StringVar(value='Фото'); self.entries=[]; self.selected=set(); self.usb_items=[]; self.usb_preview={}; self.preview_cache=Path(__import__('os').environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local'))) / 'HushPhoto' / 'previews'; self.thumbnails=[]; self.events=queue.Queue(); self.cancel_event=threading.Event(); self.running=False
+        self.group=tk.StringVar(value='Фото'); self.video_filter=tk.StringVar(value='Все видео'); self.entries=[]; self.selected=set(); self.usb_items=[]; self.usb_preview={}; self.preview_cache=Path(__import__('os').environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local'))) / 'HushPhoto' / 'previews'; self.thumbnails=[]; self.events=queue.Queue(); self.cancel_event=threading.Event(); self.running=False
         from preview_cache import clear_legacy_cache, trim_cache
         clear_legacy_cache(self.preview_cache)
         trim_cache(self.preview_cache)
@@ -83,6 +83,8 @@ class App(ctk.CTk):
         ctk.CTkButton(title,text='Обновить',width=100,fg_color=ALT,command=self.refresh).pack(side='right')
         groups=ctk.CTkFrame(self.body,fg_color='transparent'); groups.pack(fill='x',pady=(0,10))
         ctk.CTkSegmentedButton(groups,values=['Фото','Видео'],variable=self.group,command=self.group_changed).pack(side='left')
+        self.video_filters=ctk.CTkSegmentedButton(groups,values=['Все видео','Видеоролики','Live Photos'],variable=self.video_filter,command=self.video_filter_changed)
+        self.video_filters.pack(side='left',padx=(12,0)); self.video_filters.pack_forget()
         toolbar=ctk.CTkFrame(self.body,fg_color='transparent'); toolbar.pack(fill='x',pady=(0,12))
         self.search=ctk.CTkEntry(toolbar,placeholder_text='Поиск по имени файла',height=38); self.search.pack(side='left',fill='x',expand=True,padx=(0,8)); self.search.bind('<KeyRelease>',lambda _: self.draw_tiles())
         ctk.CTkButton(toolbar,text='Выбрать все',width=115,fg_color=ALT,command=lambda:self.select_all(True)).pack(side='left',padx=4)
@@ -100,7 +102,15 @@ class App(ctk.CTk):
         self.cancel_btn=ctk.CTkButton(actions,text='Отменить',width=120,fg_color=ALT,command=self.cancel,state='disabled'); self.cancel_btn.pack(side='right',padx=(8,0))
         self.go=ctk.CTkButton(actions,text='Настроить и экспортировать',width=240,height=40,command=self.start); self.go.pack(side='right')
         self.after(120,self.poll)
+    def video_filter_changed(self, _=None):
+        self.selected=set(self.visible_group_paths())
+        self.draw_tiles()
+
     def group_changed(self, _=None):
+        if self.group.get()=='Видео':
+            self.video_filters.pack(side='left',padx=(12,0))
+        else:
+            self.video_filters.pack_forget()
         # Selection is confined to the current group: a video-only export never copies photos.
         self.selected=set(self.visible_group_paths())
         self.preview_offset=0
@@ -109,7 +119,10 @@ class App(ctk.CTk):
 
     def visible_group_paths(self):
         suffixes=group_suffixes(self.group.get())
-        return (x['path'] for x in self.usb_items if x['suffix'] in suffixes) if self.usb.get() else (p for p in self.entries if p.suffix.lower() in suffixes)
+        return (x['path'] for x in self.usb_items if x['suffix'] in suffixes and (self.group.get()!='Видео' or matches_video_filter(x,self.usb_items,self.video_filter.get()))) if self.usb.get() else (p for p in self.entries if p.suffix.lower() in suffixes and (self.group.get()!='Видео' or matches_video_filter({'path':str(p),'suffix':p.suffix.lower()},self.local_media_items(),self.video_filter.get())))
+
+    def local_media_items(self):
+        return [{'path':str(p),'suffix':p.suffix.lower()} for p in self.entries]
 
     def source_changed(self):
         self.scan_cancel.set(); self.usb_scanning=False
@@ -164,7 +177,7 @@ class App(ctk.CTk):
         for w in self.preview.winfo_children(): w.destroy()
         if self.usb.get():
             needle=self.search.get().casefold().strip()
-            visible=[x for x in self.usb_items if x['suffix'] in group_suffixes(self.group.get()) and needle in x['name'].casefold()]
+            visible=[x for x in self.usb_items if x['path'] in set(self.visible_group_paths()) and needle in x['name'].casefold()]
             self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} в группе «{self.group.get()}»')
             if not visible:
                 ctk.CTkLabel(self.preview,text='В выбранной группе файлов пока нет. Подключи iPhone и нажми «Обновить».\nФайлы iCloud могут быть недоступны.',text_color=MUTED,justify='center').pack(pady=80)
@@ -183,7 +196,7 @@ class App(ctk.CTk):
                         self.thumbnails.append(thumb)
                         ctk.CTkLabel(tile,image=thumb,text='').pack(pady=(8,2))
                     except Exception:ctk.CTkLabel(tile,text=x['suffix'].upper(),height=114).pack(pady=(8,2))
-                else:ctk.CTkLabel(tile,text=x['suffix'].upper()+('\\nОригинал видео' if self.group.get()=='Видео' else '\\nОжидает загрузки'),height=114,text_color=MUTED).pack(pady=(8,2))
+                else:ctk.CTkLabel(tile,text=x['suffix'].upper()+(('\n'+video_category(x,self.usb_items)) if self.group.get()=='Видео' else '\nОжидает загрузки'),height=114,text_color=MUTED).pack(pady=(8,2))
                 check=ctk.CTkCheckBox(tile,text=x['name'][:22],width=150,font=('Segoe UI',10),onvalue=True,offvalue=False)
                 check.pack(padx=8,pady=6)
                 check.select() if key in self.selected else check.deselect()
@@ -191,7 +204,7 @@ class App(ctk.CTk):
             for c in range(4):self.preview.grid_columnconfigure(c,weight=1)
             if len(visible)>160:ctk.CTkLabel(self.preview,text='Первые 160 файлов — уточни поиск',text_color=MUTED).grid(row=41,column=0,columnspan=4)
             return
-        needle=self.search.get().casefold().strip(); visible=[p for p in self.entries if p.suffix.lower() in group_suffixes(self.group.get()) and needle in p.name.casefold()]
+        needle=self.search.get().casefold().strip(); visible=[p for p in self.entries if p in set(self.visible_group_paths()) and needle in p.name.casefold()]
         self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} в группе «{self.group.get()}»')
         if not visible:
             ctk.CTkLabel(self.preview,text='Здесь появятся файлы выбранной группы после выбора папки',text_color=MUTED).pack(pady=95); return
