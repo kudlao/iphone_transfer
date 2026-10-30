@@ -11,7 +11,7 @@ import customtkinter as ctk
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from main import IMAGE_EXTS, VIDEO_EXTS, ExportOptions, export_directory
-from media_groups import group_suffixes, matches_video_filter, video_category
+from media_groups import group_suffixes, matches_video_filter, video_category, photo_pair_index
 
 register_heif_opener()
 ctk.set_appearance_mode('dark')
@@ -58,7 +58,7 @@ class App(ctk.CTk):
         super().__init__()
         self.title('Hush Photo · Windows'); self.geometry('1170x780'); self.minsize(900,620); self.configure(fg_color=BG)
         self.source=tk.StringVar(); self.target=tk.StringVar(); self.usb=tk.BooleanVar(value=False)
-        self.group=tk.StringVar(value='Фото'); self.video_filter=tk.StringVar(value='Все видео'); self.entries=[]; self.selected=set(); self.usb_items=[]; self.usb_preview={}; self.preview_cache=Path(__import__('os').environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local'))) / 'HushPhoto' / 'previews'; self.thumbnails=[]; self.events=queue.Queue(); self.cancel_event=threading.Event(); self.running=False
+        self.group=tk.StringVar(value='Фото'); self.video_filter=tk.StringVar(value='Все видео'); self.photo_index=set(); self.entries=[]; self.selected=set(); self.usb_items=[]; self.usb_preview={}; self.preview_cache=Path(__import__('os').environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local'))) / 'HushPhoto' / 'previews'; self.thumbnails=[]; self.events=queue.Queue(); self.cancel_event=threading.Event(); self.running=False
         from preview_cache import clear_legacy_cache, trim_cache
         clear_legacy_cache(self.preview_cache)
         trim_cache(self.preview_cache)
@@ -119,7 +119,7 @@ class App(ctk.CTk):
 
     def visible_group_paths(self):
         suffixes=group_suffixes(self.group.get())
-        return (x['path'] for x in self.usb_items if x['suffix'] in suffixes and (self.group.get()!='Видео' or matches_video_filter(x,self.usb_items,self.video_filter.get()))) if self.usb.get() else (p for p in self.entries if p.suffix.lower() in suffixes and (self.group.get()!='Видео' or matches_video_filter({'path':str(p),'suffix':p.suffix.lower()},self.local_media_items(),self.video_filter.get())))
+        return (x['path'] for x in self.usb_items if x['suffix'] in suffixes and (self.group.get()!='Видео' or matches_video_filter(x,self.usb_items,self.video_filter.get(),self.photo_index))) if self.usb.get() else (p for p in self.entries if p.suffix.lower() in suffixes and (self.group.get()!='Видео' or matches_video_filter({'path':str(p),'suffix':p.suffix.lower()},None,self.video_filter.get(),self.photo_index)))
 
     def local_media_items(self):
         return [{'path':str(p),'suffix':p.suffix.lower()} for p in self.entries]
@@ -127,7 +127,7 @@ class App(ctk.CTk):
     def source_changed(self):
         self.scan_cancel.set(); self.usb_scanning=False
         usb=self.usb.get(); self.select_source.configure(state='disabled' if usb else 'normal'); self.scan_token+=1
-        self.entries=[]; self.selected=set(); self.usb_items=[]; self.usb_preview={}; self.source_name.configure(text='Подключённый iPhone' if usb else 'Папка не выбрана'); self.draw_tiles()
+        self.entries=[]; self.selected=set(); self.usb_items=[]; self.photo_index=set(); self.usb_preview={}; self.source_name.configure(text='Подключённый iPhone' if usb else 'Папка не выбрана'); self.draw_tiles()
     def choose_source(self):
         path=filedialog.askdirectory(title='Выбери папку с фото и видео')
         if path:
@@ -141,7 +141,7 @@ class App(ctk.CTk):
             self.scan_cancel=threading.Event()
             cancelled=self.scan_cancel
             self.scan_token+=1; token=self.scan_token
-            self.usb_items=[]; self.selected=set(); self.usb_scanning=True; self.preview_offset=0; self.usb_preview={}
+            self.usb_items=[]; self.photo_index=set(); self.selected=set(); self.usb_scanning=True; self.preview_offset=0; self.usb_preview={}
             self.draw_tiles()
             self.status.configure(text='Читаем папки iPhone… первые файлы появятся по мере загрузки')
             self.percentage.configure(text='Поиск…')
@@ -197,7 +197,7 @@ class App(ctk.CTk):
                         self.thumbnails.append(thumb)
                         ctk.CTkLabel(tile,image=thumb,text='').pack(pady=(8,2))
                     except Exception:ctk.CTkLabel(tile,text=x['suffix'].upper(),height=114).pack(pady=(8,2))
-                else:ctk.CTkLabel(tile,text=x['suffix'].upper()+(('\n'+video_category(x,self.usb_items)) if self.group.get()=='Видео' else '\nОжидает загрузки'),height=114,text_color=MUTED).pack(pady=(8,2))
+                else:ctk.CTkLabel(tile,text=x['suffix'].upper()+(('\n'+video_category(x,photo_index=self.photo_index)) if self.group.get()=='Видео' else '\nОжидает загрузки'),height=114,text_color=MUTED).pack(pady=(8,2))
                 check=ctk.CTkCheckBox(tile,text=x['name'][:22],width=150,font=('Segoe UI',10),onvalue=True,offvalue=False)
                 check.pack(padx=8,pady=6)
                 check.select() if key in self.selected else check.deselect()
@@ -311,7 +311,10 @@ class App(ctk.CTk):
                 token,items,count=v
                 if token==self.scan_token:
                     self.usb_items.extend(items)
-                    self.selected=set(self.visible_group_paths())
+                    # Cheap incremental index; classification remains O(1) per card.
+                    self.photo_index.update(photo_pair_index(items))
+                    # Default selection follows the chosen group during discovery.
+                    self.selected.update(x['path'] for x in items if x['suffix'] in group_suffixes(self.group.get()) and (self.group.get()!='Видео' or matches_video_filter(x,None,self.video_filter.get(),self.photo_index)))
                     self.status.configure(text=f'Найдено {count} файлов, сканирование продолжается…')
                     draw_needed=True
             elif kind=='usb_scan_done':
@@ -332,7 +335,7 @@ class App(ctk.CTk):
                     messagebox.showerror('iPhone',msg)
             elif kind=='scan':
                 token,paths=v
-                if token==self.scan_token:self.entries=paths;self.selected=set(self.visible_group_paths());self.draw_tiles();self.status.configure(text='Выбери файлы и параметры экспорта')
+                if token==self.scan_token:self.entries=paths;self.photo_index=photo_pair_index(self.local_media_items());self.selected=set(self.visible_group_paths());self.draw_tiles();self.status.configure(text='Выбери файлы и параметры экспорта')
             elif kind=='phase':self.status.configure(text=v);self.last_sample=None;self.speed=None
             elif kind in ('usb','progress'):
                 now=time.monotonic()
