@@ -10,7 +10,8 @@ import json
 def transfer_and_convert(afc, items, selected, destination, options, progress, cancelled,folders='original'):
     destination=Path(destination)
     paths=sorted(live_pair_candidates(items,selected,options.copy_mov))
-    if not options.copy_mov: paths=[p for p in paths if Path(p).suffix.lower()!='.mov']
+    # Explicitly selected videos are always preserved. copy_mov only governs
+    # automatically attached Live Photo clips (handled by live_pair_candidates).
     # Export date folders only when a reliable capture timestamp can be parsed from existing media metadata.
     # AFC has no universal capture date in listing, so fall back to original directory structure.
     resolved_folders='original' if folders=='year-month' else folders

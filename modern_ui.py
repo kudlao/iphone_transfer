@@ -10,7 +10,8 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
-from main import IMAGE_EXTS, ExportOptions, export_directory
+from main import IMAGE_EXTS, VIDEO_EXTS, ExportOptions, export_directory
+from media_groups import group_suffixes, matches_video_filter, video_category, photo_pair_index
 
 register_heif_opener()
 ctk.set_appearance_mode('dark')
@@ -18,11 +19,19 @@ ctk.set_default_color_theme('blue')
 BG='#10131b'; PANEL='#1a2030'; ALT='#242c3e'; FG='#f3f6ff'; MUTED='#a6afc2'; ACC='#6786ef'
 
 class Settings(ctk.CTkToplevel):
-    def __init__(self, parent):
+    def __init__(self, parent, video=False):
         super().__init__(parent)
-        self.title('Настройки экспорта'); self.geometry('540x610'); self.resizable(False,False)
+        self.title('Настройки экспорта видео' if video else 'Настройки экспорта'); self.geometry('540x610'); self.resizable(False,False)
         self.result=None; self.mode=tk.StringVar(value='both'); self.quality=tk.IntVar(value=97); self.mov=tk.BooleanVar(value=True); self.folders=tk.StringVar(value='Оригинальная структура')
         self.configure(fg_color=BG)
+        if video:
+            self.geometry('540x270')
+            ctk.CTkLabel(self,text='Экспорт видео',font=('Segoe UI',23,'bold')).pack(anchor='w',padx=26,pady=(24,9))
+            ctk.CTkLabel(self,text='MOV и MP4 копируются без перекодирования, с исходным качеством.',text_color=MUTED,wraplength=470).pack(anchor='w',padx=26,pady=(4,14))
+            ctk.CTkOptionMenu(self,values=['Оригинальная структура','По годам и месяцам (2026-10)','Без разделения на папки'],variable=self.folders).pack(fill='x',padx=27,pady=(8,8))
+            ctk.CTkButton(self,text='Начать экспорт видео',height=42,command=self.confirm_video).pack(fill='x',padx=27,pady=(12,12))
+            self.transient(parent); self.grab_set(); self.focus_set()
+            return
         ctk.CTkLabel(self,text='Параметры экспорта',font=('Segoe UI',23,'bold')).pack(anchor='w',padx=26,pady=(24,9))
         ctk.CTkLabel(self,text='Формат фотографий',text_color=MUTED).pack(anchor='w',padx=26,pady=(10,5))
         for value,label in [('both','Оригинал + JPEG — рекомендуется'),('original','Только оригиналы'),('jpeg','Только JPEG'),('tiff','TIFF — без дополнительного сжатия с потерями')]:
@@ -34,6 +43,11 @@ class Settings(ctk.CTkToplevel):
         ctk.CTkOptionMenu(self,values=['Оригинальная структура','По годам и месяцам (2026-10)','Без разделения на папки'],variable=self.folders).pack(fill='x',padx=27,pady=(8,6))
         ctk.CTkButton(self,text='Начать экспорт',height=42,command=self.confirm).pack(fill='x',padx=27,pady=(6,12))
         self.transient(parent); self.grab_set(); self.focus_set()
+    def confirm_video(self):
+        self.result=ExportOptions('original',97,False)
+        self.result_folders=('year-month' if self.folders.get().startswith('По годам') else 'flat' if self.folders.get().startswith('Без разделения') else 'original')
+        self.destroy()
+
     def change_q(self, v):
         self.quality.set(int(round(v))); self.qLabel.configure(text=f'Качество JPEG: {self.quality.get()}')
     def confirm(self):
@@ -44,14 +58,14 @@ class App(ctk.CTk):
         super().__init__()
         self.title('Hush Photo · Windows'); self.geometry('1170x780'); self.minsize(900,620); self.configure(fg_color=BG)
         self.source=tk.StringVar(); self.target=tk.StringVar(); self.usb=tk.BooleanVar(value=False)
-        self.entries=[]; self.selected=set(); self.usb_items=[]; self.usb_preview={}; self.preview_cache=Path(__import__('os').environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local'))) / 'HushPhoto' / 'previews'; self.thumbnails=[]; self.events=queue.Queue(); self.cancel_event=threading.Event(); self.running=False
+        self.group=tk.StringVar(value='Фото'); self.video_filter=tk.StringVar(value='Все видео'); self.photo_index=set(); self.entries=[]; self.selected=set(); self.usb_items=[]; self.usb_preview={}; self.preview_cache=Path(__import__('os').environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local'))) / 'HushPhoto' / 'previews'; self.thumbnails=[]; self.events=queue.Queue(); self.cancel_event=threading.Event(); self.running=False
         from preview_cache import clear_legacy_cache, trim_cache
         clear_legacy_cache(self.preview_cache)
         trim_cache(self.preview_cache)
         self.last_sample=None; self.speed=None; self.scan_token=0; self.start_clock=0; self.scan_cancel=threading.Event(); self.usb_scanning=False; self.usb_draw_at=0; self.preview_offset=0; self.preview_loading=False
         self.sidebar=ctk.CTkFrame(self,width=245,fg_color=PANEL,corner_radius=0); self.sidebar.pack(side='left',fill='y'); self.sidebar.pack_propagate(False)
         ctk.CTkLabel(self.sidebar,text='HUSH  PHOTO',font=('Segoe UI',24,'bold'),text_color=FG).pack(anchor='w',padx=23,pady=(26,7))
-        ctk.CTkLabel(self.sidebar,text='Перенос фото с iPhone',text_color=MUTED,font=('Segoe UI',12)).pack(anchor='w',padx=23)
+        ctk.CTkLabel(self.sidebar,text='Перенос фото и видео с iPhone',text_color=MUTED,font=('Segoe UI',12)).pack(anchor='w',padx=23)
         ctk.CTkLabel(self.sidebar,text='ИСТОЧНИК',text_color=MUTED,font=('Segoe UI',11,'bold')).pack(anchor='w',padx=23,pady=(37,11))
         ctk.CTkRadioButton(self.sidebar,text='Папка на компьютере',variable=self.usb,value=False,command=self.source_changed).pack(anchor='w',padx=20,pady=11)
         ctk.CTkRadioButton(self.sidebar,text='iPhone по USB',variable=self.usb,value=True,command=self.source_changed).pack(anchor='w',padx=20,pady=11)
@@ -65,8 +79,12 @@ class App(ctk.CTk):
         self.body=ctk.CTkFrame(self,fg_color=BG,corner_radius=0); self.body.pack(side='left',fill='both',expand=True,padx=22,pady=19)
         title=ctk.CTkFrame(self.body,fg_color='transparent'); title.pack(fill='x',pady=(0,12))
         ctk.CTkLabel(title,text='Медиатека',font=('Segoe UI',28,'bold')).pack(side='left')
-        self.count=ctk.CTkLabel(title,text='0 фотографий',text_color=MUTED); self.count.pack(side='left',padx=18)
+        self.count=ctk.CTkLabel(title,text='0 файлов',text_color=MUTED); self.count.pack(side='left',padx=18)
         ctk.CTkButton(title,text='Обновить',width=100,fg_color=ALT,command=self.refresh).pack(side='right')
+        groups=ctk.CTkFrame(self.body,fg_color='transparent'); groups.pack(fill='x',pady=(0,10))
+        ctk.CTkSegmentedButton(groups,values=['Фото','Видео'],variable=self.group,command=self.group_changed).pack(side='left')
+        self.video_filters=ctk.CTkSegmentedButton(groups,values=['Все видео','Видеоролики','Live Photos'],variable=self.video_filter,command=self.video_filter_changed)
+        self.video_filters.pack(side='left',padx=(12,0)); self.video_filters.pack_forget()
         toolbar=ctk.CTkFrame(self.body,fg_color='transparent'); toolbar.pack(fill='x',pady=(0,12))
         self.search=ctk.CTkEntry(toolbar,placeholder_text='Поиск по имени файла',height=38); self.search.pack(side='left',fill='x',expand=True,padx=(0,8)); self.search.bind('<KeyRelease>',lambda _: self.draw_tiles())
         ctk.CTkButton(toolbar,text='Выбрать все',width=115,fg_color=ALT,command=lambda:self.select_all(True)).pack(side='left',padx=4)
@@ -84,16 +102,38 @@ class App(ctk.CTk):
         self.cancel_btn=ctk.CTkButton(actions,text='Отменить',width=120,fg_color=ALT,command=self.cancel,state='disabled'); self.cancel_btn.pack(side='right',padx=(8,0))
         self.go=ctk.CTkButton(actions,text='Настроить и экспортировать',width=240,height=40,command=self.start); self.go.pack(side='right')
         self.after(120,self.poll)
+    def video_filter_changed(self, _=None):
+        self.selected=set(self.visible_group_paths())
+        self.draw_tiles()
+
+    def group_changed(self, _=None):
+        if self.group.get()=='Видео':
+            self.video_filters.pack(side='left',padx=(12,0))
+        else:
+            self.video_filters.pack_forget()
+        # Selection is confined to the current group: a video-only export never copies photos.
+        self.selected=set(self.visible_group_paths())
+        self.preview_offset=0
+        self.preview_btn.configure(state='disabled' if self.group.get()=='Видео' else 'normal')
+        self.draw_tiles()
+
+    def visible_group_paths(self):
+        suffixes=group_suffixes(self.group.get())
+        return (x['path'] for x in self.usb_items if x['suffix'] in suffixes and (self.group.get()!='Видео' or matches_video_filter(x,self.usb_items,self.video_filter.get(),self.photo_index))) if self.usb.get() else (p for p in self.entries if p.suffix.lower() in suffixes and (self.group.get()!='Видео' or matches_video_filter({'path':str(p),'suffix':p.suffix.lower()},None,self.video_filter.get(),self.photo_index)))
+
+    def local_media_items(self):
+        return [{'path':str(p),'suffix':p.suffix.lower()} for p in self.entries]
+
     def source_changed(self):
         self.scan_cancel.set(); self.usb_scanning=False
         usb=self.usb.get(); self.select_source.configure(state='disabled' if usb else 'normal'); self.scan_token+=1
-        self.entries=[]; self.selected=set(); self.usb_items=[]; self.usb_preview={}; self.source_name.configure(text='Подключённый iPhone' if usb else 'Папка не выбрана'); self.draw_tiles()
+        self.entries=[]; self.selected=set(); self.usb_items=[]; self.photo_index=set(); self.usb_preview={}; self.source_name.configure(text='Подключённый iPhone' if usb else 'Папка не выбрана'); self.draw_tiles()
     def choose_source(self):
-        path=filedialog.askdirectory(title='Выбери папку с фотографиями')
+        path=filedialog.askdirectory(title='Выбери папку с фото и видео')
         if path:
             self.source.set(path); self.source_name.configure(text=Path(path).name); self.refresh()
     def choose_target(self):
-        path=filedialog.askdirectory(title='Куда сохранить фотографии')
+        path=filedialog.askdirectory(title='Куда сохранить фото и видео')
         if path: self.target.set(path); self.target_name.configure(text=path if len(path)<28 else '…'+path[-26:])
     def refresh(self):
         if self.usb.get():
@@ -101,7 +141,7 @@ class App(ctk.CTk):
             self.scan_cancel=threading.Event()
             cancelled=self.scan_cancel
             self.scan_token+=1; token=self.scan_token
-            self.usb_items=[]; self.selected=set(); self.usb_scanning=True; self.preview_offset=0; self.usb_preview={}
+            self.usb_items=[]; self.photo_index=set(); self.selected=set(); self.usb_scanning=True; self.preview_offset=0; self.usb_preview={}
             self.draw_tiles()
             self.status.configure(text='Читаем папки iPhone… первые файлы появятся по мере загрузки')
             self.percentage.configure(text='Поиск…')
@@ -121,23 +161,27 @@ class App(ctk.CTk):
         p=Path(self.source.get()) if self.source.get() else None
         if not p or not p.is_dir(): return
         self.scan_token+=1; token=self.scan_token
-        self.status.configure(text='Ищем фотографии…')
+        self.status.configure(text='Ищем фото и видео…')
         def scan():
             try:
-                paths=sorted(x for x in p.rglob('*') if x.is_file() and x.suffix.lower() in IMAGE_EXTS)
+                paths=sorted(x for x in p.rglob('*') if x.is_file() and x.suffix.lower() in (IMAGE_EXTS | VIDEO_EXTS))
                 self.events.put(('scan',(token,paths)))
             except Exception as e:self.events.put(('error',str(e)))
         threading.Thread(target=scan,daemon=True).start()
     def select_all(self,on):
-        self.selected=set(x['path'] for x in self.usb_items if x['suffix'] in {'.heic','.heif','.jpg','.jpeg','.png','.dng','.tif','.tiff'}) if on and self.usb.get() else (set(self.entries) if on else set()); self.draw_tiles()
+        needle=self.search.get().casefold().strip()
+        visible=(p for p in self.visible_group_paths() if needle in (Path(p).name.casefold()))
+        self.selected=set(visible) if on else set()
+        self.draw_tiles()
     def draw_tiles(self):
         for w in self.preview.winfo_children(): w.destroy()
         if self.usb.get():
             needle=self.search.get().casefold().strip()
-            visible=[x for x in self.usb_items if x['suffix'] in {'.heic','.heif','.jpg','.jpeg','.png','.dng','.tif','.tiff'} and needle in x['name'].casefold()]
-            self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} фото (всего {len(self.usb_items)} файлов)')
+            group_paths=set(self.visible_group_paths())
+            visible=[x for x in self.usb_items if x['path'] in group_paths and needle in x['name'].casefold()]
+            self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} в группе «{self.group.get()}»')
             if not visible:
-                ctk.CTkLabel(self.preview,text='Подключи и разблокируй iPhone, затем нажми «Обновить».\nФайлы iCloud могут быть недоступны.',text_color=MUTED,justify='center').pack(pady=80)
+                ctk.CTkLabel(self.preview,text='В выбранной группе файлов пока нет. Подключи iPhone и нажми «Обновить».\nФайлы iCloud могут быть недоступны.',text_color=MUTED,justify='center').pack(pady=80)
                 return
             self.thumbnails=[]
             for i,x in enumerate(visible[:160]):
@@ -153,7 +197,7 @@ class App(ctk.CTk):
                         self.thumbnails.append(thumb)
                         ctk.CTkLabel(tile,image=thumb,text='').pack(pady=(8,2))
                     except Exception:ctk.CTkLabel(tile,text=x['suffix'].upper(),height=114).pack(pady=(8,2))
-                else:ctk.CTkLabel(tile,text=x['suffix'].upper()+'\nОжидает загрузки',height=114,text_color=MUTED).pack(pady=(8,2))
+                else:ctk.CTkLabel(tile,text=x['suffix'].upper()+(('\n'+video_category(x,photo_index=self.photo_index)) if self.group.get()=='Видео' else '\nОжидает загрузки'),height=114,text_color=MUTED).pack(pady=(8,2))
                 check=ctk.CTkCheckBox(tile,text=x['name'][:22],width=150,font=('Segoe UI',10),onvalue=True,offvalue=False)
                 check.pack(padx=8,pady=6)
                 check.select() if key in self.selected else check.deselect()
@@ -161,10 +205,11 @@ class App(ctk.CTk):
             for c in range(4):self.preview.grid_columnconfigure(c,weight=1)
             if len(visible)>160:ctk.CTkLabel(self.preview,text='Первые 160 файлов — уточни поиск',text_color=MUTED).grid(row=41,column=0,columnspan=4)
             return
-        needle=self.search.get().casefold().strip(); visible=[p for p in self.entries if needle in p.name.casefold()]
-        self.count.configure(text=f'{len(self.selected)} выбрано / {len(self.entries)} файлов')
+        needle=self.search.get().casefold().strip(); group_paths=set(self.visible_group_paths())
+        visible=[p for p in self.entries if p in group_paths and needle in p.name.casefold()]
+        self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} в группе «{self.group.get()}»')
         if not visible:
-            ctk.CTkLabel(self.preview,text='Здесь появятся фотографии после выбора папки',text_color=MUTED).pack(pady=95); return
+            ctk.CTkLabel(self.preview,text='Здесь появятся файлы выбранной группы после выбора папки',text_color=MUTED).pack(pady=95); return
         # Limit rendered thumbnails to avoid freezing the UI for huge libraries.
         shown=visible[:160]; self.thumbnails=[]
         for i,p in enumerate(shown):
@@ -187,9 +232,9 @@ class App(ctk.CTk):
     def toggle(self,p,value):
         if value:self.selected.add(p)
         else:self.selected.discard(p)
-        self.count.configure(text=f'{len(self.selected)} выбрано / {len(self.entries)} файлов')
+        self.count.configure(text=f'{len(self.selected)} выбрано в группе «{self.group.get()}»')
     def load_usb_previews(self):
-        if not self.usb.get() or not self.usb_items or self.running or self.preview_loading:return
+        if self.group.get()=='Видео' or not self.usb.get() or not self.usb_items or self.running or self.preview_loading:return
         needle=self.search.get().casefold().strip()
         images=[x for x in self.usb_items if x['suffix'] in {'.heic','.heif','.jpg','.jpeg','.png','.dng','.tif','.tiff'} and needle in x['name'].casefold()]
         batch=images[self.preview_offset:self.preview_offset+12]
@@ -226,15 +271,15 @@ class App(ctk.CTk):
         if self.usb.get() and self.usb_scanning:
             messagebox.showinfo('Идёт сканирование','Дождись завершения поиска файлов, чтобы все Live Photos были распознаны.');return
         if not self.target.get():messagebox.showwarning('Папка назначения','Выбери папку сохранения.');return
-        if not self.selected:messagebox.showwarning('Выбор','Выбери хотя бы одну фотографию.');return
+        if not self.selected:messagebox.showwarning('Выбор','Выбери хотя бы один файл.');return
         dest=Path(self.target.get()); source=Path(self.source.get()) if self.source.get() else None
         if not self.usb.get() and (dest.resolve()==source.resolve() or dest.resolve() in source.resolve().parents or source.resolve() in dest.resolve().parents):
             messagebox.showerror('Небезопасная папка','Исходная и целевая папки не должны пересекаться.');return
-        dialog=Settings(self); self.wait_window(dialog)
+        dialog=Settings(self,video=self.group.get()=='Видео'); self.wait_window(dialog)
         if not dialog.result:return
-        opts=dialog.result; chosen=set(self.selected); usb=self.usb.get()
+        opts=dialog.result; chosen=set(self.selected).intersection(set(self.visible_group_paths())); usb=self.usb.get()
         self.cancel_event.clear(); self.running=True; self.go.configure(state='disabled');self.cancel_btn.configure(state='normal');self.progress.set(0)
-        self.start_clock=time.monotonic();self.last_sample=None;self.speed=None;self.status.configure(text='Начинаем перенос…')
+        self.start_clock=time.monotonic();self.last_sample=None;self.speed=None;self.status.configure(text='Начинаем перенос выбранных '+('видео…' if self.group.get()=='Видео' else 'фотографий…'))
         def worker():
             try:
                 dest.mkdir(parents=True,exist_ok=True)
@@ -266,12 +311,16 @@ class App(ctk.CTk):
                 token,items,count=v
                 if token==self.scan_token:
                     self.usb_items.extend(items)
-                    self.selected.update(x['path'] for x in items if x['suffix'] in {'.heic','.heif','.jpg','.jpeg','.png','.dng','.tif','.tiff'})
+                    # Cheap incremental index; classification remains O(1) per card.
+                    self.photo_index.update(photo_pair_index(items))
+                    # Default selection follows the chosen group during discovery.
+                    self.selected.update(x['path'] for x in items if x['suffix'] in group_suffixes(self.group.get()) and (self.group.get()!='Видео' or matches_video_filter(x,None,self.video_filter.get(),self.photo_index)))
                     self.status.configure(text=f'Найдено {count} файлов, сканирование продолжается…')
                     draw_needed=True
             elif kind=='usb_scan_done':
                 if v==self.scan_token:
                     self.usb_scanning=False
+                    self.selected=set(self.visible_group_paths())
                     self.progress.stop();self.progress.configure(mode='determinate');self.progress.set(0)
                     self.percentage.configure(text='Готово')
                     self.status.configure(text=f'Найдено {len(self.usb_items)} файлов. Загружаем первые миниатюры…')
@@ -286,7 +335,7 @@ class App(ctk.CTk):
                     messagebox.showerror('iPhone',msg)
             elif kind=='scan':
                 token,paths=v
-                if token==self.scan_token:self.entries=paths;self.selected=set(paths);self.draw_tiles();self.status.configure(text='Выбери фотографии и параметры экспорта')
+                if token==self.scan_token:self.entries=paths;self.photo_index=photo_pair_index(self.local_media_items());self.selected=set(self.visible_group_paths());self.draw_tiles();self.status.configure(text='Выбери файлы и параметры экспорта')
             elif kind=='phase':self.status.configure(text=v);self.last_sample=None;self.speed=None
             elif kind in ('usb','progress'):
                 now=time.monotonic()
