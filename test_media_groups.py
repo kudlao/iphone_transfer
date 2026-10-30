@@ -36,6 +36,16 @@ class MediaGroupTests(unittest.TestCase):
         self.assertFalse(matches_video_filter(items[1],items,'Видеоролики'))
         self.assertTrue(matches_video_filter(items[4],items,'Все видео'))
 
+    def test_indexed_large_library_classification(self):
+        from media_groups import photo_pair_index, video_category
+        items=[{'path':f'DCIM/100APPLE/IMG_{i:05}.HEIC','suffix':'.heic'} for i in range(4000)]
+        items.extend({'path':f'DCIM/100APPLE/IMG_{i:05}.MOV','suffix':'.mov'} for i in range(4000))
+        items.append({'path':'DCIM/100APPLE/CLIP.MOV','suffix':'.mov'})
+        index=photo_pair_index(items)
+        self.assertEqual(len(index),4000)
+        self.assertEqual(video_category(items[-2],photo_index=index),'Live Photos')
+        self.assertEqual(video_category(items[-1],photo_index=index),'Видеоролики')
+
     def test_local_video_only_does_not_copy_photos(self):
         with TemporaryDirectory() as tmp:
             src=Path(tmp)/'src'; dst=Path(tmp)/'dst'
