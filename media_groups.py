@@ -13,3 +13,25 @@ def group_suffixes(group):
 def selected_paths_for_group(items, group):
     suffixes=group_suffixes(group)
     return {x['path'] for x in items if x['suffix'] in suffixes}
+
+def is_live_photo_video(item, items):
+    """A same-stem photo in the same DCIM directory suggests a Live Photo MOV.
+
+    Conservative filename heuristic, not a definitive Apple asset identifier.
+    """
+    from pathlib import PurePosixPath
+    p=PurePosixPath(item['path'])
+    if p.suffix.lower() != '.mov':
+        return False
+    return any(
+        PurePosixPath(other['path']).parent == p.parent
+        and PurePosixPath(other['path']).stem.casefold() == p.stem.casefold()
+        and other['suffix'].lower() in PHOTO_SUFFIXES
+        for other in items
+    )
+
+def video_category(item, items):
+    return 'Live Photos' if is_live_photo_video(item, items) else 'Видеоролики'
+
+def matches_video_filter(item, items, video_filter):
+    return video_filter == 'Все видео' or video_category(item, items) == video_filter
