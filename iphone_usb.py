@@ -162,7 +162,7 @@ class AFCCommandLine:
                             raise InterruptedError('Отменено')
                         continue
                     # Only the last lines matter; avoid huge progress spam in reports.
-                    detail=output.replace('\\r','\\n').strip().splitlines()
+                    detail=output.strip().splitlines()
                     useful=[line.strip() for line in detail if line.strip()
                             and ('disconnect' in line.lower() or 'error' in line.lower())]
                     message=(useful[-1] if useful else (detail[-1] if detail else 'Неизвестная ошибка'))
