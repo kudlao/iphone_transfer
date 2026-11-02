@@ -63,7 +63,7 @@ copy /y README.md "dist\HushPhoto\README.md" >nul
 
 echo.
 echo [5/5] Packaging ZIP (this can be slower with large DLLs)...
-powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Compress-Archive -Path 'dist\HushPhoto\*' -DestinationPath 'dist\HushPhoto-Windows-Portable.zip' -CompressionLevel Fastest -Force"
+powershell -NoProfile -Command "$ErrorActionPreference='Stop'; Compress-Archive -Path 'dist\HushPhoto' -DestinationPath 'dist\HushPhoto-Windows-Portable.zip' -CompressionLevel Fastest -Force"
 if errorlevel 1 goto :failed
 
 echo.
