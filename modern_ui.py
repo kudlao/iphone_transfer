@@ -759,6 +759,30 @@ class App(ctk.CTk):
         threading.Thread(target=worker,daemon=True).start()
     def cancel(self):self.cancel_event.set();self.cancel_btn.configure(state='disabled');self.status.configure(text='Останавливаем после текущего файла…')
     def poll(self):
+        """Keep UI event processing alive even when a widget callback fails."""
+        try:
+            self._poll_events()
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            self.scan_cancel.set()
+            self.scan_token+=1
+            self.usb_scanning=False
+            self.local_scanning=False
+            self.scanned=False
+            self.scan_error=f'Ошибка интерфейса: {exc}'
+            self.status.configure(text='Поиск прерван из-за ошибки интерфейса')
+            try:
+                self.progress.stop()
+                self.progress_row.pack_forget()
+                self._display_library(False)
+            except Exception:
+                traceback.print_exc()
+        finally:
+            try:self.after(120,self.poll)
+            except tk.TclError:pass
+
+    def _poll_events(self):
         draw_needed=False
         while not self.events.empty():
             kind,v=self.events.get_nowait()
@@ -856,6 +880,5 @@ class App(ctk.CTk):
         if draw_needed and (not self.usb_scanning or time.monotonic()-self.usb_draw_at>1.0):
             self.usb_draw_at=time.monotonic()
             self.draw_tiles()
-        self.after(120,self.poll)
 
 if __name__=='__main__':App().mainloop()
