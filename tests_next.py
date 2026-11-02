@@ -44,6 +44,22 @@ class SafeTests(unittest.TestCase):
     def test_path_safety(self):
         for p in ('../x','/abs','DCIM/../../test','C:/temp'):
             with self.assertRaises(ValueError):safe_relative(p)
+    def test_unknown_capture_date_does_not_use_current_month(self):
+        self.assertEqual(organized_path('DCIM/100/A.HEIC','year-month'),Path('Без даты/A.HEIC'))
+
+    def test_failed_backend_removes_part_file(self):
+        class PartialAFC:
+            def read_to(self,path,dest,progress=None,cancelled=None):
+                part=Path(str(dest)+'.part')
+                part.parent.mkdir(parents=True,exist_ok=True)
+                part.write_bytes(b'partial')
+                raise ConnectionError('USB disconnected')
+        with tempfile.TemporaryDirectory() as d:
+            stats=incremental_export(PartialAFC(),['DCIM/A.HEIC'],d)
+            self.assertEqual(len(stats['failed']),1)
+            self.assertFalse((Path(d)/'.hushphoto-staging').exists())
+            self.assertFalse(list(Path(d).rglob('*.part')))
+
     def test_organization(self):
         import datetime
         p=organized_path('DCIM/100/A.JPG','year-month',datetime.datetime(2024,3,1))

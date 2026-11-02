@@ -40,9 +40,9 @@ Replace the example with your own directory. This setting applies to the current
 ## 3. Exporting photos and videos
 
 1. Select **iPhone via USB** or **Local folder** as the source.
-2. For iPhone, click **Refresh** and wait for the media list. Use the **Photos / Videos** selector at the top. The **Videos** group has **All videos**, **Video clips** and **Live Photos** filters. A MOV file paired with an image of the same basename in the same directory is categorized as a Live Photo video; other MOV/MP4 files are video clips. This filename-based heuristic does not read Apple's internal asset identifiers, so classification may be imperfect. Selection applies only to the current group. Open **Videos** and select the desired MOV/MP4 files for a video-only export. Load additional photo thumbnails if needed.
-3. Choose a destination directory and click **Configure and export**.
-4. For **Photos**, choose **Originals**, **Originals + JPEG**, **JPEG**, or **TIFF**. Optionally include Live Photo MOV components and set JPEG quality (default 97). For **Videos**, MOV/MP4 files are copied directly, without transcoding or quality loss.
+2. For iPhone, use **Find photos and videos** on the welcome screen and wait for the media list. Use **Refresh** to scan again. Use the **Photos / Videos** selector at the top. The **Videos** group has **All videos**, **Video clips** and **Live Photos** filters. A MOV file paired with an image of the same basename in the same directory is categorized as a Live Photo video; other MOV/MP4 files are video clips. This filename-based heuristic does not read Apple's internal asset identifiers, so classification may be imperfect. Selection applies only to the current group. Open **Videos** and select the desired MOV/MP4 files for a video-only export. Load additional photo thumbnails if needed.
+3. Choose a destination directory and click **Export selected**.
+4. For **Photos**, **Originals** is the default (no recompression, preserves HDR and avoids redundant JPEG copies). You can choose **Originals + JPEG**, **JPEG**, or **TIFF**. Optionally include Live Photo MOV components and set JPEG quality (default 97). For **Videos**, MOV/MP4 files are copied directly, without transcoding or quality loss.
 5. Choose **Year and month (`2026-10`)**, **Flat folder**, or **Original directory structure**; then start the export.
 6. Check the output when the operation finishes. The interface displays the current filename, progress, speed and estimated remaining time.
 
@@ -57,13 +57,21 @@ Year/month organization uses the capture date when metadata provides one; Hush P
 - If an AFC video transfer fails, the app records an error. This does not prove the video is absent from Apple Photos. You may try Windows File Explorer. Files copied manually are not automatically added to the Hush Photo manifest.
 - If an iPhone video has visual artifacts in the default Windows player, test the same original in VLC. HEVC/HDR playback support may be the issue rather than file transfer.
 
+### Interface and selection
+
+- The UI follows the Windows light/dark appearance, with a compact iOS-inspired shell. The welcome screen offers one main action for finding media; search and selection controls appear only after discovery. Connection errors show an inline retry action.
+- Large libraries use pages of 36 items; **Back** and **Next** reach files beyond the former 160-item limit.
+- Photo and video selections persist when switching categories. Search filters only the visible list; **Select all** and **Clear selection** apply to matching files rather than discarding hidden choices.
+- Photos default to capture-month folders (`YYYY-MM`), while videos default to the original structure. Items without a reliable capture date go into **Без даты** (No date).
+- USB remaining-time estimates are approximate when the total byte size is unavailable; transfer speed still uses actual copied bytes.
+
 ## 4. Repeated exports and local data
 
-- Hush Photo maintains a local manifest of previously exported files and skips verified copies. If the USB connection fails, run the export again. Completed files remain intact; an incomplete file is restarted from the beginning.
+- USB exports use a local manifest and skip verified copies. Local-folder exports avoid duplicate files by comparing SHA-256; different content with the same name is retained under a new name. If the USB connection fails, run the export again. Completed files remain intact; an incomplete file is restarted from the beginning.
 - SHA-256 verification checks the locally downloaded file against the local manifest; it does **not** compare against an independently obtained iPhone SHA-256.
 - A temporary `.hushphoto-staging` directory is created under the destination. Temporary files are removed after processing; some empty directories may remain. Do not delete staging files while exporting.
 - Thumbnail cache: `%LOCALAPPDATA%\HushPhoto\previews`, JPEG thumbnails up to 320×320 pixels, with an automatic 500 MiB limit. Creating a thumbnail may temporarily download the complete source image from the iPhone; the temporary source is deleted afterward.
-- To keep original source data, use **Originals + JPEG** with MOV components. JPEG encoding is lossy; full HDR-to-SDR tone mapping is not guaranteed. Preserve the original HEIC files.
+- To keep original source data without unnecessary extra copies, use **Originals** with MOV components; choose **Originals + JPEG** when compatibility copies are wanted. JPEG encoding is lossy; full HDR-to-SDR tone mapping is not guaranteed. Preserve the original HEIC files.
 
 ## 5. Troubleshooting
 

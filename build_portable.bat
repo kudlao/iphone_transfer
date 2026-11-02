@@ -13,7 +13,7 @@ python -m pip install --upgrade pip
 if errorlevel 1 exit /b 1
 python -m pip install -r requirements.txt "pyinstaller>=6.10,<7"
 if errorlevel 1 exit /b 1
-python -m unittest -q tests_next tests_preview_cache
+python -m unittest -q tests_next tests_preview_cache test_media_groups
 if errorlevel 1 (
  echo Tests failed. Portable build stopped.
  exit /b 1

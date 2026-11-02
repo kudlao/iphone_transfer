@@ -37,6 +37,40 @@ def unique_path(destination: Path) -> Path:
         index += 1
 
 
+def copy_original_safely(source: Path, destination: Path) -> Path:
+    """Idempotent, verified local copy. Never overwrite unrelated files."""
+    from safe_export import collision_safe, sha256_file
+    digest = sha256_file(source)
+    final = collision_safe(destination, digest)
+    if final.exists():
+        return final
+    part = final.with_name(final.name + '.part')
+    try:
+        shutil.copy2(source, part)
+        if sha256_file(part) != digest:
+            raise IOError(f'Copy verification failed: {source.name}')
+        part.replace(final)
+    finally:
+        part.unlink(missing_ok=True)
+    return final
+
+
+def convert_unique(source: Path, folder: Path, kind: str, quality: int) -> Path:
+    """Create a temporary derivative and publish it only if not already present."""
+    from safe_export import collision_safe, sha256_file
+    extension = '.tiff' if kind == 'tiff' else '.jpg'
+    with tempfile.NamedTemporaryFile(prefix='.hushphoto-', suffix='.part', dir=folder, delete=False) as temp:
+        staged = Path(temp.name)
+    try:
+        convert_image(source, staged, kind, quality)
+        final = collision_safe(folder / (source.stem + extension), sha256_file(staged))
+        if not final.exists():
+            staged.replace(final)
+        return final
+    finally:
+        staged.unlink(missing_ok=True)
+
+
 def prepare_image(source: Path):
     with Image.open(source) as raw:
         exif = raw.getexif()
@@ -100,28 +134,27 @@ def export_directory(source_dir: Path, dest_dir: Path, options: ExportOptions, r
         try:
             if source.suffix.lower() in VIDEO_EXTS:
                 # Videos are copied byte-for-byte, regardless of the photo conversion mode.
-                shutil.copy2(source, unique_path(folder / source.name))
+                copy_original_safely(source, folder / source.name)
                 processed += 1
                 reporter(index, len(pictures), source.name)
                 continue
             if options.mode in {'both', 'original'}:
-                shutil.copy2(source, unique_path(folder / source.name))
+                copy_original_safely(source, folder / source.name)
             if options.mode in {'both', 'jpeg', 'tiff'}:
                 extension = '.jpg' if options.mode != 'tiff' else '.tiff'
                 kind = 'jpeg' if options.mode != 'tiff' else 'tiff'
                 # Never recompress an existing JPEG; for 'both' the original IS its JPEG.
                 already_copied = options.mode == 'both' and source.suffix.lower() in {'.jpg', '.jpeg'}
                 if not already_copied:
-                    destination = unique_path(folder / (source.stem + extension))
                     if kind == 'jpeg' and source.suffix.lower() in {'.jpg', '.jpeg'}:
-                        shutil.copy2(source, destination)
+                        copy_original_safely(source, folder / source.name)
                     else:
-                        convert_image(source, destination, kind, options.quality)
+                        convert_unique(source, folder, kind, options.quality)
             if options.copy_mov:
                 for movie in source.parent.iterdir():
                     if movie.is_file() and movie.suffix.lower() == '.mov' and movie.stem.casefold() == source.stem.casefold():
                         if movie not in copied_mov:
-                            shutil.copy2(movie, unique_path(folder / movie.name))
+                            copy_original_safely(movie, folder / movie.name)
                             copied_mov.add(movie)
             processed += 1
         except Exception as exc:

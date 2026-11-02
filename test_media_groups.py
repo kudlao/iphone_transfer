@@ -46,6 +46,42 @@ class MediaGroupTests(unittest.TestCase):
         self.assertEqual(video_category(items[-2],photo_index=index),'Live Photos')
         self.assertEqual(video_category(items[-1],photo_index=index),'Видеоролики')
 
+    def test_local_repeated_export_does_not_duplicate_originals(self):
+        with TemporaryDirectory() as tmp:
+            src=Path(tmp)/'src'; dst=Path(tmp)/'dst'
+            src.mkdir(); dst.mkdir()
+            (src/'clip.mov').write_bytes(b'video')
+            (src/'photo.jpg').write_bytes(b'jpeg data')
+            for _ in range(2):
+                done,total,errors,cancelled=export_directory(
+                    src,dst,ExportOptions('original'),lambda *_:None)
+                self.assertEqual((done,total,errors,cancelled),(2,2,[],False))
+            self.assertEqual(sorted(p.name for p in dst.glob('*.mov')),['clip.mov'])
+            self.assertEqual(sorted(p.name for p in dst.glob('*.jpg')),['photo.jpg'])
+
+    def test_local_jpeg_conversion_is_idempotent(self):
+        from PIL import Image
+        with TemporaryDirectory() as tmp:
+            src=Path(tmp)/'src'; dst=Path(tmp)/'dst'
+            src.mkdir();dst.mkdir()
+            Image.new('RGB',(16,16),'blue').save(src/'sample.png')
+            for _ in range(2):
+                done,total,errors,cancelled=export_directory(
+                    src,dst,ExportOptions('jpeg',quality=95),lambda *_:None)
+                self.assertEqual((done,total,errors,cancelled),(1,1,[],False))
+            self.assertEqual(len(list(dst.glob('*.jpg'))),1)
+
+    def test_local_conflicting_names_keep_both_versions(self):
+        with TemporaryDirectory() as tmp:
+            src=Path(tmp)/'src'; dst=Path(tmp)/'dst'
+            src.mkdir(); dst.mkdir()
+            original=src/'clip.mov';original.write_bytes(b'first version')
+            export_directory(src,dst,ExportOptions('original'),lambda *_:None)
+            original.write_bytes(b'changed version')
+            export_directory(src,dst,ExportOptions('original'),lambda *_:None)
+            self.assertEqual((dst/'clip.mov').read_bytes(),b'first version')
+            self.assertEqual((dst/'clip (2).mov').read_bytes(),b'changed version')
+
     def test_local_video_only_does_not_copy_photos(self):
         with TemporaryDirectory() as tmp:
             src=Path(tmp)/'src'; dst=Path(tmp)/'dst'

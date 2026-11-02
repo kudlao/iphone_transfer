@@ -89,6 +89,7 @@ class AFC:
         handle=C.c_uint64()
         self._ok(self.d.afc_file_open(self.afc,path.encode('utf-8'),1,C.byref(handle)),f'Открытие {path}')
         done=0
+        part=None
         try:
             destination=Path(destination)
             destination.parent.mkdir(parents=True,exist_ok=True)
@@ -104,7 +105,12 @@ class AFC:
                     if progress:progress(done)
             os.replace(part,destination)
             return done
-        finally:self.d.afc_file_close(self.afc,handle.value)
+        finally:
+            try:
+                self.d.afc_file_close(self.afc,handle.value)
+            finally:
+                if part is not None:
+                    part.unlink(missing_ok=True)
 
 
 class AFCCommandLine:
