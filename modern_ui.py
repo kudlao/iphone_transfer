@@ -381,11 +381,16 @@ class App(ctk.CTk):
         self.usb.set(mode=='iPhone')
         self.source_changed()
 
-    def empty_primary_action(self):
+    def stop_scan(self):
         if self.usb_scanning or self.local_scanning:
             self.scan_cancel.set()
             self.status.configure(text='Останавливаем поиск…')
             self.empty_action.configure(state='disabled')
+            self.refresh_btn.configure(state='disabled')
+
+    def empty_primary_action(self):
+        if self.usb_scanning or self.local_scanning:
+            self.stop_scan()
             return
         if self.usb.get():
             self.refresh()
@@ -426,6 +431,9 @@ class App(ctk.CTk):
     def _display_library(self, shown):
         """Swap an illustrated empty state for the actual library; no blank controls."""
         if shown:
+            self.refresh_btn.configure(text='Остановить поиск' if self.usb_scanning or self.local_scanning else '↻  Обновить',
+                                       command=self.stop_scan if self.usb_scanning or self.local_scanning else self.refresh,
+                                       state='disabled' if self.scan_cancel.is_set() and (self.usb_scanning or self.local_scanning) else 'normal')
             if not self.refresh_btn.winfo_manager():
                 self.refresh_btn.pack(side='right',pady=8)
             self.empty.pack_forget()
@@ -458,7 +466,7 @@ class App(ctk.CTk):
         else:
             self.count.configure(text='Пока нет файлов')
         if not self.running:
-            self.go.configure(state='normal' if count and not self.usb_scanning and not self.local_scanning else 'disabled',
+            self.go.configure(state='normal' if count and self.scanned and not self.usb_scanning and not self.local_scanning else 'disabled',
                               text=f'Экспортировать · {count}' if count else 'Экспортировать')
             if not self.export_result:
                 self.details.configure(text='Выберите файлы и папку для экспорта' if count else 'Выберите файлы для экспорта')
@@ -615,7 +623,7 @@ class App(ctk.CTk):
     def draw_tiles(self):
         self.tile_checks=[]
         for w in self.preview.winfo_children(): w.destroy()
-        has_any=bool(self.usb_items if self.usb.get() else self.entries)
+        has_any=bool(self.usb_items if self.usb.get() else self.entries) and (self.scanned or self.usb_scanning or self.local_scanning)
         self._display_library(has_any)
         self._update_selection()
         if not has_any:return
@@ -776,6 +784,7 @@ class App(ctk.CTk):
             elif kind=='usb_scan_done':
                 if v==self.scan_token:
                     self.usb_scanning=False
+                    self.refresh_btn.configure(state='normal')
                     self.scanned=True
                     self.connection_badge.configure(text='●  iPhone обнаружен',text_color=ACC)
                     self.selected=set(self.visible_group_paths()); self.selected_by_group={'Фото':None,'Видео':None}
@@ -787,6 +796,7 @@ class App(ctk.CTk):
             elif kind=='usb_scan_cancelled':
                 if v==self.scan_token:
                     self.usb_scanning=False
+                    self.refresh_btn.configure(state='normal')
                     self.progress.stop();self.progress.configure(mode='determinate')
                     self.progress_row.pack_forget()
                     self.scanned=False
@@ -795,12 +805,14 @@ class App(ctk.CTk):
             elif kind=='local_scan_cancelled':
                 if v==self.scan_token:
                     self.local_scanning=False
+                    self.refresh_btn.configure(state='normal')
                     self.status.configure(text='Поиск остановлен')
                     self.draw_tiles()
             elif kind=='usb_scan_error':
                 token,msg=v
                 if token==self.scan_token:
                     self.usb_scanning=False
+                    self.refresh_btn.configure(state='normal')
                     self.scan_error=msg
                     self.connection_badge.configure(text='●  Нет соединения',text_color=MUTED)
                     self.draw_tiles()
@@ -813,7 +825,7 @@ class App(ctk.CTk):
                     self.local_scanning=False;self.scan_error=msg;self.draw_tiles();self.status.configure(text='Не удалось прочитать папку')
             elif kind=='scan':
                 token,paths=v
-                if token==self.scan_token:self.local_scanning=False;self.scanned=True;self.scan_error=None;self.entries=paths;self.photo_index=photo_pair_index(self.local_media_items());self.selected=set(self.visible_group_paths());self.selected_by_group={'Фото':None,'Видео':None};self.draw_tiles();self.status.configure(text='Выберите файлы для экспорта')
+                if token==self.scan_token:self.local_scanning=False;self.refresh_btn.configure(state='normal');self.scanned=True;self.scan_error=None;self.entries=paths;self.photo_index=photo_pair_index(self.local_media_items());self.selected=set(self.visible_group_paths());self.selected_by_group={'Фото':None,'Видео':None};self.draw_tiles();self.status.configure(text='Выберите файлы для экспорта')
             elif kind=='phase':self.status.configure(text=v);self.last_sample=None;self.speed=None
             elif kind in ('usb','progress'):
                 now=time.monotonic()
