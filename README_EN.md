@@ -61,7 +61,7 @@ Year/month organization uses the capture date when metadata provides one; Hush P
 
 - The UI follows the Windows light/dark appearance, with a compact iOS-inspired shell. The welcome screen offers one main action for finding media; search and selection controls appear only after discovery. Connection errors show an inline retry action.
 - Large libraries use pages of 36 items; **Back** and **Next** reach files beyond the former 160-item limit.
-- Photo and video selections persist when switching categories. Search filters only the visible list; **Select all** and **Clear selection** apply to matching files rather than discarding hidden choices.
+- Photo and video selections persist when switching categories. **All videos / Video clips / Live Photos** sub-filters restrict both the export button count and the actual export paths (e.g. 71 clips, not 1,818 videos). The other video sub-filter selections remain saved for later. Search only narrows the visible cards; **Select all** and **Clear selection** affect matching files rather than discarding hidden choices.
 - Photos default to capture-month folders (`YYYY-MM`), while videos default to the original structure. Items without a reliable capture date go into **Без даты** (No date).
 - USB remaining-time estimates are approximate when the total byte size is unavailable; transfer speed still uses actual copied bytes. **Stop scan** cancels discovery; an unplugged iPhone or a stalled AFC listing stops discovery with an error instead of leaving an infinite spinner.
 
