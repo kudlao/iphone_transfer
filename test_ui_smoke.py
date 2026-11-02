@@ -17,7 +17,7 @@ class LayoutTests(unittest.TestCase):
 
     def test_welcome_screen_shows_primary_action(self):
         self.assertTrue(self.app.empty.winfo_manager())
-        self.assertFalse(self.app.preview.winfo_manager())
+        self.assertFalse(self.app.preview._parent_frame.winfo_manager())
         self.assertEqual(self.app.go.cget('state'), 'disabled')
 
     def test_discovery_renders_library_without_tcl_pack_error(self):
@@ -31,14 +31,14 @@ class LayoutTests(unittest.TestCase):
         self.app.selected = {'DCIM/100APPLE/IMG_0001.HEIC'}
         self.app.draw_tiles()
         self.app.update_idletasks()
-        self.assertTrue(self.app.preview.winfo_manager())
+        self.assertTrue(self.app.preview._parent_frame.winfo_manager())
         self.assertTrue(self.app.pager.winfo_manager())
         self.assertFalse(self.app.empty.winfo_manager())
         self.assertEqual(self.app.go.cget('state'), 'normal')
         self.app.group.set('Видео')
         self.app.group_changed()
         self.app.update_idletasks()
-        self.assertTrue(self.app.preview.winfo_manager())
+        self.assertTrue(self.app.preview._parent_frame.winfo_manager())
 
     def test_scan_failure_does_not_enable_partial_export(self):
         self.app.usb_items = [
