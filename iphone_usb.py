@@ -178,7 +178,7 @@ class AFCCommandLine:
                 stdout.seek(0);stderr.seek(0)
                 output=stdout.read().decode('utf-8','replace')
                 errors=stderr.read().decode('utf-8','replace')
-                combined=(output+'\\n'+errors).lower()
+                combined=(output+'\n'+errors).lower()
                 if (process.returncode or 'error:' in combined
                         or 'disconnected' in combined or 'not connected' in combined):
                     raise AFCError('Не удалось прочитать '+path+': '+(errors or output)[-400:])
