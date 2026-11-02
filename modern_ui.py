@@ -11,7 +11,7 @@ import customtkinter as ctk
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from main import IMAGE_EXTS, VIDEO_EXTS, ExportOptions, export_directory
-from media_groups import group_suffixes, matches_video_filter, video_category, photo_pair_index
+from media_groups import group_suffixes, matches_video_filter, video_category, photo_pair_index, selected_in_scope
 
 register_heif_opener()
 # Follow the Windows light/dark preference with an iOS-inspired palette.
@@ -458,18 +458,27 @@ class App(ctk.CTk):
                 self.empty.pack(fill='both',expand=True,before=self.footer)
             self._update_empty_state()
 
+    def _current_export_paths(self):
+        """Snapshot of selectable files in the active group AND video sub-filter.
+
+        All other stored selections remain available when the filter changes.
+        Search and pagination do not narrow an already selected export.
+        """
+        return selected_in_scope(self.selected, self.visible_group_paths())
+
     def _update_selection(self):
-        count=len(self.selected)
-        available=len(self.usb_items) if self.usb.get() else len(self.entries)
+        count=len(self._current_export_paths())
+        available=sum(1 for _ in self.visible_group_paths())
         if available:
-            self.count.configure(text=f'{count} выбрано  ·  {available} файлов найдено')
+            self.count.configure(text=f'{count} выбрано из {available} · {self.group.get()}' +
+                                 (f' / {self.video_filter.get()}' if self.group.get()=='Видео' else ''))
         else:
-            self.count.configure(text='Пока нет файлов')
+            self.count.configure(text='Нет файлов в текущем фильтре')
         if not self.running:
             self.go.configure(state='normal' if count and self.scanned and not self.usb_scanning and not self.local_scanning else 'disabled',
                               text=f'Экспортировать · {count}' if count else 'Экспортировать')
             if not self.export_result:
-                self.details.configure(text='Выберите файлы и папку для экспорта' if count else 'Выберите файлы для экспорта')
+                self.details.configure(text='Выберите папку для экспорта' if count else 'Выберите файлы в текущем фильтре')
 
     def reset_page(self):
         self.page=0
@@ -631,7 +640,6 @@ class App(ctk.CTk):
             needle=self.search.get().casefold().strip()
             group_paths=set(self.visible_group_paths())
             visible=[x for x in self.usb_items if x['path'] in group_paths and needle in x['name'].casefold()]
-            self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} в группе «{self.group.get()}»')
             page_items=self._page_items(visible)
             if not visible:
                 ctk.CTkLabel(self.preview,text='В этой категории нет файлов.\nПопробуйте переключить Фото / Видео или изменить поиск.',text_color=MUTED,justify='center').pack(pady=80)
@@ -660,7 +668,6 @@ class App(ctk.CTk):
             return
         needle=self.search.get().casefold().strip(); group_paths=set(self.visible_group_paths())
         visible=[p for p in self.entries if p in group_paths and needle in p.name.casefold()]
-        self.count.configure(text=f'{len(self.selected)} выбрано / {len(visible)} в группе «{self.group.get()}»')
         shown=self._page_items(visible)
         if not visible:
             ctk.CTkLabel(self.preview,text='В этой категории нет файлов.\nПопробуйте изменить фильтр или поиск.',text_color=MUTED).pack(pady=95); return
@@ -731,13 +738,18 @@ class App(ctk.CTk):
         if not self.target.get():
             self.choose_target()
             if not self.target.get():return
-        if not self.selected:messagebox.showwarning('Выбор','Выбери хотя бы один файл.');return
+        chosen=self._current_export_paths()
+        if not chosen:
+            messagebox.showwarning('Выбор','В текущем фильтре не выбраны файлы для экспорта.');return
         dest=Path(self.target.get()); source=Path(self.source.get()) if self.source.get() else None
         if not self.usb.get() and (dest.resolve()==source.resolve() or dest.resolve() in source.resolve().parents or source.resolve() in dest.resolve().parents):
             messagebox.showerror('Небезопасная папка','Исходная и целевая папки не должны пересекаться.');return
         dialog=Settings(self,video=self.group.get()=='Видео'); self.wait_window(dialog)
         if not dialog.result:return
-        opts=dialog.result; chosen={p for p in self.selected if Path(p).suffix.lower() in group_suffixes(self.group.get())}; usb=self.usb.get()
+        opts=dialog.result; usb=self.usb.get()
+        # Use exactly the paths represented by the export button, captured before
+        # opening the dialog. Hidden Live Photo MOVs must not leak into clips.
+        if not chosen:return
         self.cancel_event.clear(); self.export_result=False; self.set_running(True); self.progress.configure(mode='determinate'); self.progress.set(0); self.progress_row.pack(fill='x',padx=18,pady=(0,12))
         self.start_clock=time.monotonic();self.last_sample=None;self.speed=None;self.status.configure(text='Начинаем перенос выбранных '+('видео…' if self.group.get()=='Видео' else 'фотографий…'))
         def worker():
