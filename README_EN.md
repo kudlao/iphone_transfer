@@ -63,7 +63,7 @@ Year/month organization uses the capture date when metadata provides one; Hush P
 - Large libraries use pages of 36 items; **Back** and **Next** reach files beyond the former 160-item limit.
 - Photo and video selections persist when switching categories. Search filters only the visible list; **Select all** and **Clear selection** apply to matching files rather than discarding hidden choices.
 - Photos default to capture-month folders (`YYYY-MM`), while videos default to the original structure. Items without a reliable capture date go into **Без даты** (No date).
-- USB remaining-time estimates are approximate when the total byte size is unavailable; transfer speed still uses actual copied bytes.
+- USB remaining-time estimates are approximate when the total byte size is unavailable; transfer speed still uses actual copied bytes. **Stop scan** cancels discovery; an unplugged iPhone or a stalled AFC listing stops discovery with an error instead of leaving an infinite spinner.
 
 ## 4. Repeated exports and local data
 
