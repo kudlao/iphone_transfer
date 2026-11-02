@@ -20,6 +20,37 @@ class MediaGroupTests(unittest.TestCase):
         self.assertEqual(selected_paths_for_group(items, 'Видео'), {'DCIM/100APPLE/IMG_1.MOV','DCIM/100APPLE/VID_2.MP4'})
         self.assertTrue(group_suffixes('Фото').isdisjoint(group_suffixes('Видео')))
 
+    def test_video_clip_filter_exports_only_71_of_1818_selected_videos(self):
+        """Regression: 1818 selected videos must NOT export as 1818 clips."""
+        from media_groups import matches_video_filter, photo_pair_index, selected_in_scope
+
+        photos=[{'path':f'DCIM/100APPLE/IMG_{i:05}.HEIC','suffix':'.heic'}
+                for i in range(1747)]
+        live=[{'path':f'DCIM/100APPLE/IMG_{i:05}.MOV','suffix':'.mov'}
+              for i in range(1747)]
+        clips=[{'path':f'DCIM/100APPLE/CLIP_{i:05}.MOV','suffix':'.mov'}
+               for i in range(71)]
+        items=photos+live+clips
+        index=photo_pair_index(items)
+        selected={item['path'] for item in live+clips}
+        self.assertEqual(len(selected),1818)
+        active_clips={item['path'] for item in live+clips
+                      if matches_video_filter(item,items,'Видеоролики',index)}
+        active_live={item['path'] for item in live+clips
+                     if matches_video_filter(item,items,'Live Photos',index)}
+        self.assertEqual(len(active_clips),71)
+        self.assertEqual(len(active_live),1747)
+        # Same exact set drives both the UI count and the USB export arguments.
+        self.assertEqual(selected_in_scope(selected,active_clips),{x['path'] for x in clips})
+        self.assertEqual(len(selected_in_scope(selected,active_clips)),71)
+        self.assertEqual(len(selected_in_scope(selected,active_live)),1747)
+        self.assertEqual(len(selected_in_scope(selected,selected)),1818)
+        # Empty selection within active filter must not fall back to 1818 videos.
+        self.assertEqual(selected_in_scope(active_live,active_clips),set())
+        # Existing Path objects from local folders remain unmodified.
+        local={Path('videos/CLIP.MOV')}
+        self.assertEqual(selected_in_scope(local,local),local)
+
     def test_video_subgroups_and_same_folder(self):
         from media_groups import video_category, matches_video_filter
         items=[
