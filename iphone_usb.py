@@ -194,7 +194,7 @@ class AFCCommandLine:
                         process.kill();process.wait()
 
     def read_to(self,path,destination,progress=None,cancelled=None):
-        """Retry transient AFC disconnects with a fresh process, never append partial files."""
+        """Retry disconnects; bound idle time and avoid child stdout pipe deadlocks."""
         destination=Path(destination)
         destination.parent.mkdir(parents=True,exist_ok=True)
         part=destination.with_name(destination.name+'.part')
@@ -203,49 +203,55 @@ class AFCCommandLine:
             if cancelled is not None and cancelled.is_set():
                 raise InterruptedError('Отменено')
             part.unlink(missing_ok=True)
-            process=subprocess.Popen(
-                [self.executable,'get',path,str(part)],
-                stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-            try:
-                while process.poll() is None:
-                    if cancelled is not None and cancelled.is_set():
-                        process.terminate()
-                        try: process.wait(timeout=3)
-                        except subprocess.TimeoutExpired:
-                            process.kill()
-                            process.wait()
-                        raise InterruptedError('Отменено')
-                    if progress: progress(part.stat().st_size if part.exists() else 0)
-                    time.sleep(.25)
-                stdout,stderr=process.communicate(timeout=10)
-                output=(stderr or stdout).decode('utf-8','replace')
-                disconnected='[disconnected]' in output.lower()
-                failed=(process.returncode != 0 or not part.exists()
-                        or b'Error:' in stdout or b'Error:' in stderr or disconnected)
-                if failed:
-                    if disconnected and attempt+1<attempts:
-                        # A new afcclient invocation reopens the iPhone connection.
-                        # Restart the whole file; never treat a partial as complete.
-                        if progress: progress(0)
-                        if cancelled is not None and cancelled.wait(1+attempt):
+            with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+                process=subprocess.Popen(
+                    [self.executable,'get',path,str(part)],
+                    stdin=subprocess.DEVNULL,stdout=stdout_file,stderr=stderr_file,
+                    creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                last_progress=time.monotonic()
+                previous_size=0
+                try:
+                    while process.poll() is None:
+                        if cancelled is not None and cancelled.is_set():
                             raise InterruptedError('Отменено')
-                        continue
-                    # Only the last lines matter; avoid huge progress spam in reports.
-                    detail=output.strip().splitlines()
-                    useful=[line.strip() for line in detail if line.strip()
-                            and ('disconnect' in line.lower() or 'error' in line.lower())]
-                    message=(useful[-1] if useful else (detail[-1] if detail else 'Неизвестная ошибка'))
-                    raise AFCError(f'Ошибка копирования {path} (попытка {attempt+1}/{attempts}): {message[:240]}')
-                size=part.stat().st_size
-                os.replace(part,destination)
-                if progress: progress(size)
-                return size
-            finally:
-                if process.poll() is None:
-                    process.kill()
-                    process.wait()
-                part.unlink(missing_ok=True)
+                        size=part.stat().st_size if part.exists() else 0
+                        if size>previous_size:
+                            previous_size=size
+                            last_progress=time.monotonic()
+                        if time.monotonic()-last_progress>45:
+                            raise AFCError('iPhone не отвечает при копировании '+path+
+                                           '. Проверь USB-кабель и повтори экспорт.')
+                        if progress:progress(size)
+                        time.sleep(.25)
+                    stdout_file.seek(0);stderr_file.seek(0)
+                    stdout=stdout_file.read();stderr=stderr_file.read()
+                    output=(stderr or stdout).decode('utf-8','replace')
+                    disconnected='disconnected' in output.lower()
+                    failed=(process.returncode != 0 or not part.exists()
+                            or b'error:' in stdout.lower() or b'error:' in stderr.lower()
+                            or disconnected)
+                    if failed:
+                        if disconnected and attempt+1<attempts:
+                            if progress:progress(0)
+                            if cancelled is not None and cancelled.wait(1+attempt):
+                                raise InterruptedError('Отменено')
+                            continue
+                        detail=output.strip().splitlines()
+                        useful=[line.strip() for line in detail if line.strip()
+                                and ('disconnect' in line.lower() or 'error' in line.lower())]
+                        message=(useful[-1] if useful else (detail[-1] if detail else 'Неизвестная ошибка'))
+                        raise AFCError(f'Ошибка копирования {path} (попытка {attempt+1}/{attempts}): {message[:240]}')
+                    size=part.stat().st_size
+                    os.replace(part,destination)
+                    if progress:progress(size)
+                    return size
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                        try:process.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            process.kill();process.wait()
+                    part.unlink(missing_ok=True)
 
 
 def _afc_executable():
