@@ -770,6 +770,7 @@ class App(ctk.CTk):
             self.usb_scanning=False
             self.local_scanning=False
             self.scanned=False
+            self.usb_items=[];self.selected.clear();self.usb_preview.clear()
             self.scan_error=f'Ошибка интерфейса: {exc}'
             self.status.configure(text='Поиск прерван из-за ошибки интерфейса')
             try:
@@ -824,6 +825,7 @@ class App(ctk.CTk):
                     self.progress.stop();self.progress.configure(mode='determinate')
                     self.progress_row.pack_forget()
                     self.scanned=False
+                    self.usb_items=[];self.selected.clear();self.usb_preview.clear()
                     self.status.configure(text='Поиск остановлен')
                     self.draw_tiles()
             elif kind=='local_scan_cancelled':
@@ -838,6 +840,7 @@ class App(ctk.CTk):
                     self.usb_scanning=False
                     self.refresh_btn.configure(state='normal')
                     self.scan_error=msg
+                    self.usb_items=[];self.selected.clear();self.usb_preview.clear()
                     self.connection_badge.configure(text='●  Нет соединения',text_color=MUTED)
                     self.draw_tiles()
                     self.progress.stop();self.progress.configure(mode='determinate');self.progress.set(0);self.progress_row.pack_forget()
