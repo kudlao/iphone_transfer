@@ -382,6 +382,11 @@ class App(ctk.CTk):
         self.source_changed()
 
     def empty_primary_action(self):
+        if self.usb_scanning or self.local_scanning:
+            self.scan_cancel.set()
+            self.status.configure(text='Останавливаем поиск…')
+            self.empty_action.configure(state='disabled')
+            return
         if self.usb.get():
             self.refresh()
         elif self.scanned or not self.source.get():
@@ -398,7 +403,7 @@ class App(ctk.CTk):
         elif self.usb_scanning or self.local_scanning:
             title='Ищем фотографии…'
             desc='Считываем доступные файлы с устройства.\nЭто может занять немного времени.'
-            button='Идёт поиск…'
+            button='Остановить поиск'
         elif self.scanned and not (self.usb_items if self.usb.get() else self.entries):
             title='Файлы не найдены'
             desc=('На iPhone нет доступных фото и видео в DCIM.\n'
@@ -416,7 +421,7 @@ class App(ctk.CTk):
             button='Выбрать папку' if not self.source.get() else 'Показать файлы'
         self.empty_title.configure(text=title)
         self.empty_desc.configure(text=desc)
-        self.empty_action.configure(text=button,state='disabled' if self.usb_scanning or self.local_scanning else 'normal')
+        self.empty_action.configure(text=button,state='normal')
 
     def _display_library(self, shown):
         """Swap an illustrated empty state for the actual library; no blank controls."""
@@ -427,9 +432,9 @@ class App(ctk.CTk):
             if not self.tools.winfo_manager():
                 self.tools.pack(fill='x',before=self.footer)
             if not self.preview.winfo_manager():
-                self.preview.pack(fill='both',expand=True,after=self.tools)
+                self.preview.pack(fill='both',expand=True,before=self.footer)
             if not self.pager.winfo_manager():
-                self.pager.pack(fill='x',pady=(9,0),after=self.preview)
+                self.pager.pack(fill='x',pady=(9,0),before=self.footer)
             if self.usb.get() and self.group.get()=='Фото':
                 if not self.preview_btn.winfo_manager():
                     self.preview_btn.pack(anchor='w')
@@ -574,19 +579,29 @@ class App(ctk.CTk):
                             self.events.put(('usb_batch', (token,items,count)))
                     list_iphone_media(on_batch=batch,cancelled=cancelled,batch_size=32)
                     self.events.put(('usb_scan_done',token))
+                except InterruptedError:
+                    self.events.put(('usb_scan_cancelled',token))
                 except Exception as e:self.events.put(('usb_scan_error',(token,str(e))))
             threading.Thread(target=scan_usb,daemon=True).start()
             return
         p=Path(self.source.get()) if self.source.get() else None
         if not p or not p.is_dir(): return
+        self.scan_cancel.set()
+        self.scan_cancel=threading.Event()
+        scan_cancel=self.scan_cancel
         self.local_scanning=True
         self.draw_tiles()
         self.scan_token+=1; token=self.scan_token
         self.status.configure(text='Ищем фото и видео…')
         def scan():
             try:
-                paths=sorted(x for x in p.rglob('*') if x.is_file() and x.suffix.lower() in (IMAGE_EXTS | VIDEO_EXTS))
-                self.events.put(('scan',(token,paths)))
+                paths=[]
+                for item in p.rglob('*'):
+                    if scan_cancel.is_set():
+                        self.events.put(('local_scan_cancelled',token));return
+                    if item.is_file() and item.suffix.lower() in (IMAGE_EXTS | VIDEO_EXTS):
+                        paths.append(item)
+                self.events.put(('scan',(token,sorted(paths))))
             except Exception as e:self.events.put(('local_scan_error',(token,str(e))))
         threading.Thread(target=scan,daemon=True).start()
     def select_all(self,on):
@@ -769,6 +784,19 @@ class App(ctk.CTk):
                     self.status.configure(text=f'Найдено {len(self.usb_items)} файлов' if not self.usb_items else f'Найдено {len(self.usb_items)} файлов · загрузка миниатюр')
                     if self.usb_items:self.after(150,self.load_usb_previews)
                     draw_needed=True
+            elif kind=='usb_scan_cancelled':
+                if v==self.scan_token:
+                    self.usb_scanning=False
+                    self.progress.stop();self.progress.configure(mode='determinate')
+                    self.progress_row.pack_forget()
+                    self.scanned=False
+                    self.status.configure(text='Поиск остановлен')
+                    self.draw_tiles()
+            elif kind=='local_scan_cancelled':
+                if v==self.scan_token:
+                    self.local_scanning=False
+                    self.status.configure(text='Поиск остановлен')
+                    self.draw_tiles()
             elif kind=='usb_scan_error':
                 token,msg=v
                 if token==self.scan_token:
