@@ -439,7 +439,7 @@ class App(ctk.CTk):
             self.empty.pack_forget()
             if not self.tools.winfo_manager():
                 self.tools.pack(fill='x',before=self.footer)
-            if not self.preview.winfo_manager():
+            if not self.preview._parent_frame.winfo_manager():
                 self.preview.pack(fill='both',expand=True,before=self.footer)
             if not self.pager.winfo_manager():
                 self.pager.pack(fill='x',pady=(9,0),before=self.footer)
