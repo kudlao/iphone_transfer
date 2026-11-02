@@ -9,6 +9,7 @@ import subprocess
 import time
 import shutil
 import threading
+import tempfile
 from pathlib import Path, PurePosixPath
 
 EXTS={'.heic','.heif','.jpg','.jpeg','.png','.tif','.tiff','.mov','.mp4','.dng','.aae'}
@@ -73,7 +74,8 @@ class AFC:
                 setattr(self,attr,C.c_void_p())
     def __enter__(self):return self
     def __exit__(self,*_):self.close()
-    def listdir(self,path):
+    def listdir(self,path,cancelled=None):
+        if cancelled is not None and cancelled.is_set():raise InterruptedError('Поиск отменён')
         output=C.POINTER(C.c_char_p)()
         code=self.d.afc_read_directory(self.afc,path.encode('utf-8'),C.byref(output))
         self._ok(code,f'Чтение {path}')
@@ -84,6 +86,7 @@ class AFC:
                 if name not in ('.','..'): result.append(name)
                 i+=1
         finally:self.d.afc_dictionary_free(output)
+        if cancelled is not None and cancelled.is_set():raise InterruptedError('Поиск отменён')
         return result
     def read_to(self,path,destination,progress=None,cancelled=None):
         handle=C.c_uint64()
@@ -121,14 +124,75 @@ class AFCCommandLine:
         self.executable=str(executable)
         if not Path(self.executable).is_file():
             raise AFCError('afcclient.exe не найден: '+self.executable)
+        self.device_tool=Path(self.executable).with_name('idevice_id.exe')
+        self._last_probe=0.0
+        self._initial_devices=None
     def __enter__(self):return self
     def __exit__(self,*_):pass
-    def listdir(self,path):
-        p=subprocess.run([self.executable,'ls',path],capture_output=True,encoding='utf-8',errors='replace',timeout=80,
-                         creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-        if p.returncode or 'Error:' in p.stdout or 'Error:' in p.stderr:
-            raise AFCError('Не удалось прочитать '+path+': '+(p.stderr or p.stdout)[-400:])
-        return [name.strip() for name in p.stdout.splitlines() if name.strip() not in ('','.','..')]
+    def _ensure_connected(self,cancelled=None):
+        """Detect unplugged phones when idevice_id is bundled with afcclient."""
+        if cancelled is not None and cancelled.is_set():
+            raise InterruptedError('Поиск отменён')
+        if not self.device_tool.is_file():
+            return  # AFC ls still detects I/O failures on its own.
+        now=time.monotonic()
+        if self._initial_devices is not None and now-self._last_probe < 2:
+            return
+        try:
+            proc=subprocess.run(
+                [str(self.device_tool),'-l'],capture_output=True,
+                timeout=5,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        except subprocess.TimeoutExpired as exc:
+            raise AFCError('iPhone не отвечает. Проверь USB-кабель и разблокировку.') from exc
+        if proc.returncode:
+            raise AFCError('Не удалось проверить подключение iPhone (idevice_id).')
+        present={line.strip() for line in proc.stdout.decode('utf-8','replace').splitlines()
+                 if line.strip()}
+        if not present or (self._initial_devices is not None and not (present & self._initial_devices)):
+            raise AFCError('iPhone отключён. Подключи устройство и повтори поиск.')
+        if self._initial_devices is None:
+            self._initial_devices=present
+        self._last_probe=time.monotonic()
+        if cancelled is not None and cancelled.is_set():
+            raise InterruptedError('Поиск отменён')
+
+    def listdir(self,path,cancelled=None):
+        """Never block the UI on a stalled AFC directory listing indefinitely.
+
+        A file redirect avoids PIPE deadlock for very large DCIM directory listings.
+        """
+        self._ensure_connected(cancelled)
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            process=subprocess.Popen(
+                [self.executable,'ls',path],stdin=subprocess.DEVNULL,
+                stdout=stdout,stderr=stderr,
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            started=time.monotonic()
+            try:
+                while process.poll() is None:
+                    if cancelled is not None and cancelled.is_set():
+                        raise InterruptedError('Поиск отменён')
+                    if time.monotonic()-started > 20:
+                        raise AFCError('iPhone перестал отвечать при чтении '+path+'. Проверь подключение.')
+                    time.sleep(.15)
+                stdout.seek(0);stderr.seek(0)
+                output=stdout.read().decode('utf-8','replace')
+                errors=stderr.read().decode('utf-8','replace')
+                combined=(output+'\\n'+errors).lower()
+                if (process.returncode or 'error:' in combined
+                        or 'disconnected' in combined or 'not connected' in combined):
+                    raise AFCError('Не удалось прочитать '+path+': '+(errors or output)[-400:])
+                if cancelled is not None and cancelled.is_set():
+                    raise InterruptedError('Поиск отменён')
+                return [name.strip() for name in output.splitlines()
+                        if name.strip() not in ('','.','..')]
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    try:process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill();process.wait()
+
     def read_to(self,path,destination,progress=None,cancelled=None):
         """Retry transient AFC disconnects with a fresh process, never append partial files."""
         destination=Path(destination)
@@ -204,20 +268,22 @@ def open_afc():
                        'или положи набор утилит в папку native.') from e
 
 
-def _media_roots(afc):
+def _media_roots(afc,cancelled=None):
     # AFC root corresponds to /var/mobile/Media. Apple may expose DCIM itself
     # or monthly directories. Never assume the Windows Explorer structure maps 1:1.
-    root=set(afc.listdir('/'))
+    root=set(afc.listdir('/',cancelled=cancelled))
     if 'DCIM' in root:return ['/DCIM']
     return ['/']
 
 
 def _enumerate(afc,cancelled=None):
-    stack=_media_roots(afc)
+    stack=_media_roots(afc,cancelled)
     while stack:
         if cancelled is not None and cancelled.is_set():break
         base=stack.pop()
-        for name in afc.listdir(base):
+        for name in afc.listdir(base,cancelled=cancelled):
+            if cancelled is not None and cancelled.is_set():
+                raise InterruptedError('Поиск отменён')
             path=base.rstrip('/')+'/'+name
             extension=Path(name).suffix.lower()
             if extension in EXTS:
@@ -234,6 +300,8 @@ def list_iphone_media(on_batch=None,cancelled=None,batch_size=64):
             if len(batch)>=batch_size:
                 if on_batch:on_batch(batch,len(result))
                 batch=[]
+        if cancelled is not None and cancelled.is_set():
+            raise InterruptedError('Поиск отменён')
         if batch and on_batch:on_batch(batch,len(result))
         return result
 
