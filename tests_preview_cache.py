@@ -66,11 +66,15 @@ class PreviewCacheTests(unittest.TestCase):
             part.write_bytes(b'incomplete-preview')
             user_file=cache/'notes.txt'
             user_file.write_text('unrelated')
+            stale_original=cache/'hushphoto-preview-interrupted'/'original'
+            stale_original.parent.mkdir()
+            stale_original.write_bytes(b'partial full-res source')
             external=Path(d)/'Exported-HEIC.heic'
             external.write_bytes(b'actual original')
-            self.assertEqual(clear_preview_cache(cache),2)
+            self.assertEqual(clear_preview_cache(cache),3)
             self.assertFalse(photo.exists())
             self.assertFalse(part.exists())
+            self.assertFalse(stale_original.exists())
             self.assertTrue(user_file.exists())
             self.assertTrue(external.exists())
             self.assertEqual(clear_preview_cache(cache),0)
