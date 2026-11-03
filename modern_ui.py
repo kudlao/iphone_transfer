@@ -128,7 +128,7 @@ class Settings(ctk.CTkToplevel):
 
 
 class App(ctk.CTk):
-    """One clear import flow, with Windows-native layout and iOS-like visual restraint."""
+    """Windows media export interface with a clear, focused workflow."""
 
     def __init__(self):
         super().__init__()
