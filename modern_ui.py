@@ -176,6 +176,7 @@ class App(ctk.CTk):
         self.export_result=False
         self.scan_error=None
         self.scanned=False
+        self.connection_state='idle'
 
         self.header=ctk.CTkFrame(self,fg_color=PANEL,corner_radius=0,height=76)
         self.header.pack(fill='x')
@@ -377,6 +378,46 @@ class App(ctk.CTk):
         self._update_empty_state()
         self.after(120,self.poll)
 
+    def _set_iphone_state(self,state):
+        """Keep the USB status and explanation in sync throughout the workflow.
+
+        A completed AFC operation closes a *session*, not the physical USB
+        connection; only an actual connection error should mark it unavailable.
+        """
+        self.connection_state=state
+        states={
+            'idle':('●  Готов к подключению',
+                    'Подключите и разблокируйте iPhone.\\nЗатем начните поиск.'),
+            'scanning':('●  Поиск на iPhone…',
+                        'Считываем медиатеку iPhone.\\nНе отключайте кабель.'),
+            'ready':('●  Медиатека загружена',
+                     f'Найдено {len(self.usb_items)} файлов.\\nМожно выбирать и экспортировать.'),
+            'exporting':('●  Передача с iPhone…',
+                         'Копируем выбранные файлы.\\nНе отключайте кабель.'),
+            'exported':('●  Медиатека доступна',
+                        'Экспорт завершён.\\nМожно продолжить перенос.'),
+            'cancelled':('●  Поиск остановлен',
+                         'Чтобы продолжить работу,\\nзапустите поиск повторно.'),
+            'disconnected':('●  iPhone не отвечает',
+                            'Проверьте кабель и разблокировку.\\nПовторите поиск.'),
+            'error':('●  Ошибка подключения',
+                     'Проверьте доступ к iPhone\\nи повторите поиск.'),
+            'transfer_error':('●  Ошибка переноса',
+                              'Список файлов сохранён.\\nМожно повторить экспорт.'),
+        }
+        label,detail=states[state]
+        self.connection_badge.configure(text=label,text_color=MUTED if state in ('idle','cancelled','disconnected','error') else ACC)
+        self.source_name.configure(text=detail)
+
+    @staticmethod
+    def _is_connection_error(message):
+        """Do not treat file conversion or cancellation as a USB disconnect."""
+        lower=str(message).casefold()
+        return any(marker in lower for marker in (
+            'disconnected','not connected','no device','device not found',
+            'отключён','не подключён','iphone не отвечает',
+            'не удалось подключиться','устройство не найдено'))
+
     def source_mode_changed(self, mode):
         self.usb.set(mode=='iPhone')
         self.source_changed()
@@ -557,8 +598,13 @@ class App(ctk.CTk):
             self.select_source.pack_forget()
         elif not self.select_source.winfo_manager():
             self.select_source.pack(fill='x',padx=18,pady=(12,0),after=self.device_card)
-        self.connection_badge.configure(text='●  Ожидает подключения' if usb else '●  Локальная папка',text_color=MUTED)
-        self.entries=[]; self.selected=set(); self.selected_by_group={'Фото':None,'Видео':None}; self.page=0; self.usb_items=[]; self.photo_index=set(); self.usb_preview={}; self.local_scanning=False; self.preview_btn.configure(state='normal' if usb and self.group.get()=='Фото' else 'disabled'); self.source_name.configure(text='Подключите разблокированный iPhone' if usb else (Path(self.source.get()).name if self.source.get() else 'Папка не выбрана')); self.export_result=False; self.draw_tiles(); self.status.configure(text='Готово к подключению')
+        self.entries=[]; self.selected=set(); self.selected_by_group={'Фото':None,'Видео':None}; self.page=0; self.usb_items=[]; self.photo_index=set(); self.usb_preview={}; self.local_scanning=False; self.preview_btn.configure(state='normal' if usb and self.group.get()=='Фото' else 'disabled'); self.export_result=False
+        if usb:self._set_iphone_state('idle')
+        else:
+            self.connection_state='local'
+            self.connection_badge.configure(text='●  Локальная папка',text_color=MUTED)
+            self.source_name.configure(text=Path(self.source.get()).name if self.source.get() else 'Папка не выбрана')
+        self.draw_tiles(); self.status.configure(text='Готово к подключению')
     def choose_source(self):
         if self.running:return
         path=filedialog.askdirectory(title='Выбери папку с фото и видео')
@@ -581,8 +627,8 @@ class App(ctk.CTk):
             cancelled=self.scan_cancel
             self.scan_token+=1; token=self.scan_token
             self.usb_items=[]; self.photo_index=set(); self.selected=set(); self.usb_scanning=True; self.preview_offset=0; self.usb_preview={}
+            self._set_iphone_state('scanning')
             self.draw_tiles()
-            self.connection_badge.configure(text='●  Поиск на iPhone…',text_color=ACC)
             self.status.configure(text='Читаем папки iPhone…')
             self.percentage.configure(text='Поиск…')
             self.progress_row.pack(fill='x',padx=18,pady=(0,12))
@@ -750,7 +796,9 @@ class App(ctk.CTk):
         # Use exactly the paths represented by the export button, captured before
         # opening the dialog. Hidden Live Photo MOVs must not leak into clips.
         if not chosen:return
-        self.cancel_event.clear(); self.export_result=False; self.set_running(True); self.progress.configure(mode='determinate'); self.progress.set(0); self.progress_row.pack(fill='x',padx=18,pady=(0,12))
+        self.cancel_event.clear(); self.export_result=False; self.set_running(True)
+        if usb:self._set_iphone_state('exporting')
+        self.progress.configure(mode='determinate'); self.progress.set(0); self.progress_row.pack(fill='x',padx=18,pady=(0,12))
         self.start_clock=time.monotonic();self.last_sample=None;self.speed=None;self.status.configure(text='Начинаем перенос выбранных '+('видео…' if self.group.get()=='Видео' else 'фотографий…'))
         def worker():
             try:
@@ -823,7 +871,7 @@ class App(ctk.CTk):
                     self.usb_scanning=False
                     self.refresh_btn.configure(state='normal')
                     self.scanned=True
-                    self.connection_badge.configure(text='●  iPhone обнаружен',text_color=ACC)
+                    self._set_iphone_state('ready')
                     self.selected=set(self.visible_group_paths()); self.selected_by_group={'Фото':None,'Видео':None}
                     self.progress.stop();self.progress.configure(mode='determinate');self.progress.set(0);self.progress_row.pack_forget()
                     self.percentage.configure(text='Готово')
@@ -838,6 +886,7 @@ class App(ctk.CTk):
                     self.progress_row.pack_forget()
                     self.scanned=False
                     self.usb_items=[];self.selected.clear();self.usb_preview.clear()
+                    self._set_iphone_state('cancelled')
                     self.status.configure(text='Поиск остановлен')
                     self.draw_tiles()
             elif kind=='local_scan_cancelled':
@@ -853,7 +902,7 @@ class App(ctk.CTk):
                     self.refresh_btn.configure(state='normal')
                     self.scan_error=msg
                     self.usb_items=[];self.selected.clear();self.usb_preview.clear()
-                    self.connection_badge.configure(text='●  Нет соединения',text_color=MUTED)
+                    self._set_iphone_state('disconnected' if self._is_connection_error(msg) else 'error')
                     self.draw_tiles()
                     self.progress.stop();self.progress.configure(mode='determinate');self.progress.set(0);self.progress_row.pack_forget()
                     self.percentage.configure(text='Ошибка')
@@ -888,10 +937,16 @@ class App(ctk.CTk):
                 self.details.configure(text=f'Файл: {Path(name).name[:37]}    •    Скорость: {speed_text}    •    Осталось: {"≈ " if not whole and eta is not None else ""}{eta_text}')
             elif kind=='done':
                 n,total,errors,cancelled=v;self.export_result=True;self.set_running(False)
+                if self.usb.get():
+                    # Closing AFC after a transfer is normal and is not a disconnect.
+                    self._set_iphone_state('disconnected' if any(self._is_connection_error(e) for e in errors) else 'exported')
                 self.status.configure(text=f'{"Отменено" if cancelled else "Готово"}: {n}/{total}. Ошибок: {len(errors)}')
                 messagebox.showinfo('Результат',f'Обработано: {n}/{total}\nОшибок: {len(errors)}\nРезультат: {self.target.get()}')
             elif kind=='error':
-                self.export_result=True;self.set_running(False);self.status.configure(text='Ошибка экспорта');messagebox.showerror('Ошибка',v)
+                self.export_result=True;self.set_running(False)
+                if self.usb.get():
+                    self._set_iphone_state('disconnected' if self._is_connection_error(v) else 'transfer_error')
+                self.status.configure(text='Ошибка экспорта');messagebox.showerror('Ошибка',v)
         if draw_needed and (not self.usb_scanning or time.monotonic()-self.usb_draw_at>1.0):
             self.usb_draw_at=time.monotonic()
             self.draw_tiles()
