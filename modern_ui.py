@@ -423,6 +423,18 @@ class App(ctk.CTk):
             'отключён','не подключён','iphone не отвечает',
             'не удалось подключиться','устройство не найдено'))
 
+    def _invalidate_disconnected_iphone(self,reason):
+        """Only invalidate a library when USB disconnection is explicitly reported."""
+        self.scan_error=str(reason)
+        self.scanned=False
+        self.usb_items=[]
+        self.photo_index.clear()
+        self.selected.clear()
+        self.selected_by_group={'Фото':None,'Видео':None}
+        self.usb_preview.clear()
+        self._set_iphone_state('disconnected')
+        self.draw_tiles()
+
     def source_mode_changed(self, mode):
         self.usb.set(mode=='iPhone')
         self.source_changed()
@@ -945,7 +957,7 @@ class App(ctk.CTk):
                 if self.usb.get():
                     # Closing AFC after a transfer is normal and is not a disconnect.
                     if any(self._is_connection_error(e) for e in errors):
-                        self._set_iphone_state('disconnected')
+                        self._invalidate_disconnected_iphone(next(e for e in errors if self._is_connection_error(e)))
                     elif cancelled:
                         self._set_iphone_state('export_cancelled')
                     elif errors:
@@ -957,7 +969,8 @@ class App(ctk.CTk):
             elif kind=='error':
                 self.export_result=True;self.set_running(False)
                 if self.usb.get():
-                    self._set_iphone_state('disconnected' if self._is_connection_error(v) else 'transfer_error')
+                    if self._is_connection_error(v):self._invalidate_disconnected_iphone(v)
+                    else:self._set_iphone_state('transfer_error')
                 self.status.configure(text='Ошибка экспорта');messagebox.showerror('Ошибка',v)
         if draw_needed and (not self.usb_scanning or time.monotonic()-self.usb_draw_at>1.0):
             self.usb_draw_at=time.monotonic()
