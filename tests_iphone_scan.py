@@ -75,7 +75,7 @@ class ScanTests(unittest.TestCase):
              mock.patch('iphone_usb.Path.is_file',return_value=True), \
              mock.patch('iphone_usb.shutil.which',return_value=None), \
              mock.patch('iphone_usb.subprocess.run',return_value=SimpleNamespace(
-                 returncode=0,stdout=b'UDID_1234\\n',stderr=b'')) as command, \
+                 returncode=0,stdout=b'UDID_1234\n',stderr=b'')) as command, \
              mock.patch('iphone_usb.open_afc') as afc:
             self.assertTrue(probe_iphone_connected())
             self.assertEqual(command.call_args.args[0][-1],'-l')
@@ -98,10 +98,18 @@ class ScanTests(unittest.TestCase):
              mock.patch('iphone_usb.Path.is_file',return_value=False), \
              mock.patch('iphone_usb.shutil.which',return_value=None), \
              mock.patch('iphone_usb.subprocess.run',return_value=SimpleNamespace(
-                 returncode=0,stdout=b'DCIM\\n',stderr=b'')) as command:
+                 returncode=0,stdout=b'DCIM\n',stderr=b'')) as command:
             self.assertTrue(probe_iphone_connected())
             self.assertEqual(command.call_args.args[0][-2:],['ls','/'])
             self.assertEqual(command.call_args.kwargs['timeout'],4)
+
+    def test_fallback_empty_output_does_not_trigger_false_scan(self):
+        with mock.patch('iphone_usb._afc_executable',return_value=Path('C:/native/afcclient.exe')), \
+             mock.patch('iphone_usb.Path.is_file',return_value=False), \
+             mock.patch('iphone_usb.shutil.which',return_value=None), \
+             mock.patch('iphone_usb.subprocess.run',return_value=SimpleNamespace(
+                 returncode=0,stdout=b'',stderr=b'')):
+            self.assertFalse(probe_iphone_connected())
 
     def test_missing_idevice_probe_does_not_bypass_cancel(self):
         with mock.patch('iphone_usb.Path.is_file', return_value=True):
