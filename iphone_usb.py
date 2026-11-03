@@ -264,6 +264,52 @@ def _afc_executable():
     return next((p for p in locations if p.is_file()),None)
 
 
+
+def probe_iphone_connected():
+    """Passive USB presence probe; True/False, or None if tools cannot tell.
+
+    Never open an AFC session just to monitor an iPhone. Prefer idevice_id,
+    which does not read the media library. If only afcclient is bundled, use
+    a short, read-only root listing as a fallback. Caller runs this in a
+    background thread, never on Tk's event loop.
+    """
+    executable=_afc_executable()
+    candidates=[]
+    if executable:
+        candidates.append(Path(executable).with_name('idevice_id.exe'))
+    configured=os.environ.get('HUSH_AFC_TOOLS','')
+    if configured:
+        candidates.append(Path(configured)/'idevice_id.exe')
+    path_tool=shutil.which('idevice_id.exe')
+    if path_tool:
+        candidates.append(Path(path_tool))
+    idevice=next((path for path in candidates if path.is_file()),None)
+    flags=getattr(subprocess,'CREATE_NO_WINDOW',0)
+    if idevice:
+        try:
+            result=subprocess.run([str(idevice),'-l'],stdin=subprocess.DEVNULL,
+                                  capture_output=True,timeout=4,creationflags=flags)
+        except (OSError,subprocess.TimeoutExpired):
+            return None
+        if result.returncode:
+            return None
+        devices=[line.strip() for line in result.stdout.decode('utf-8','replace').splitlines()
+                 if line.strip()]
+        return bool(devices)
+    if executable:
+        try:
+            result=subprocess.run([str(executable),'ls','/'],stdin=subprocess.DEVNULL,
+                                  capture_output=True,timeout=4,creationflags=flags)
+        except (OSError,subprocess.TimeoutExpired):
+            return None
+        combined=(result.stdout+result.stderr).decode('utf-8','replace').lower()
+        if result.returncode != 0 or any(marker in combined for marker in (
+                'error:', 'no device', 'not connected', 'disconnected', 'failed')):
+            return False
+        return True
+    return None
+
+
 def open_afc():
     # Prefer an explicitly configured or bundled afcclient over an untested DLL ABI.
     exe=_afc_executable()
