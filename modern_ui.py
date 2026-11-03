@@ -820,7 +820,10 @@ class App(ctk.CTk):
             if path in self.preview_failed:
                 continue
             if path in self.usb_preview:
-                continue
+                if Path(self.usb_preview[path]).is_file():
+                    continue
+                # An LRU-evicted thumbnail can be fetched again on demand.
+                self.usb_preview.pop(path,None)
             cached=cache_file(self.preview_cache,path)
             if cached.is_file() and cached.stat().st_size>0:
                 self.usb_preview[path]=str(cached)
