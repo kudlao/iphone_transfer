@@ -306,7 +306,8 @@ def probe_iphone_connected():
         if result.returncode != 0 or any(marker in combined for marker in (
                 'error:', 'no device', 'not connected', 'disconnected', 'failed')):
             return False
-        return True
+        # Some afcclient builds exit with 0 yet print no entries without a phone.
+        return bool(result.stdout.strip())
     return None
 
 
