@@ -697,6 +697,8 @@ class App(ctk.CTk):
         self.draw_tiles()
     def draw_tiles(self):
         self.tile_checks=[]
+        self.usb_tile_frames={}
+        self.usb_tile_labels={}
         for w in self.preview.winfo_children(): w.destroy()
         has_any=bool(self.usb_items if self.usb.get() else self.entries) and (self.scanned or self.usb_scanning or self.local_scanning)
         self._display_library(has_any)
@@ -715,16 +717,19 @@ class App(ctk.CTk):
                 r,c=divmod(i,4); key=x['path']
                 tile=ctk.CTkFrame(self.preview,width=156,height=170,fg_color=SELECTED if key in self.selected else TILE,corner_radius=12,border_width=1,border_color=ACC if key in self.selected else ALT)
                 tile.grid(row=r,column=c,padx=7,pady=7,sticky='nsew');tile.grid_propagate(False)
-                local=self.usb_preview.get(key)
-                if local and Path(local).is_file():
-                    try:
-                        with Image.open(local) as raw:
-                            im=ImageOps.exif_transpose(raw);im.thumbnail((132,108)); im=im.copy()
-                        thumb=ctk.CTkImage(light_image=im,dark_image=im,size=im.size)
-                        self.thumbnails.append(thumb)
-                        ctk.CTkLabel(tile,image=thumb,text='').pack(pady=(8,2))
-                    except Exception:ctk.CTkLabel(tile,text=x['suffix'].upper(),height=114).pack(pady=(8,2))
-                else:ctk.CTkLabel(tile,text=('▧\n'+x['suffix'].lstrip('.').upper()) if self.group.get()=='Фото' else ('▷\n'+video_category(x,photo_index=self.photo_index)),height=114,text_color=MUTED).pack(pady=(8,2))
+                if self.group.get()=='Фото':
+                    self.usb_tile_frames[key]=tile
+                    preview_label=ctk.CTkLabel(
+                        tile,text='▧\n'+x['suffix'].lstrip('.').upper(),
+                        height=114,text_color=MUTED)
+                    preview_label.pack(pady=(8,2))
+                    self.usb_tile_labels[key]=preview_label
+                    local=self.usb_preview.get(key)
+                    if local and Path(local).is_file():
+                        self._paint_usb_thumbnail(key,local)
+                else:
+                    ctk.CTkLabel(tile,text='▷\n'+video_category(x,photo_index=self.photo_index),
+                                 height=114,text_color=MUTED).pack(pady=(8,2))
                 check=ctk.CTkCheckBox(tile,text=x['name'][:22],width=140,font=('Segoe UI',10),onvalue=True,offvalue=False,checkbox_width=20,checkbox_height=20,corner_radius=6)
                 check.pack(padx=8,pady=6)
                 self.tile_checks.append(check)
@@ -934,8 +939,10 @@ class App(ctk.CTk):
     def cancel(self):self.cancel_event.set();self.cancel_btn.configure(state='disabled');self.status.configure(text='Останавливаем после текущего файла…')
     def poll(self):
         """Keep UI event processing alive even when a widget callback fails."""
+        if self._closing:return
         try:
             self._poll_events()
+            self._request_visible_previews()
         except Exception as exc:
             import traceback
             traceback.print_exc()
@@ -954,22 +961,27 @@ class App(ctk.CTk):
             except Exception:
                 traceback.print_exc()
         finally:
-            try:self.after(120,self.poll)
-            except tk.TclError:pass
+            if not self._closing:
+                try:self.after(120,self.poll)
+                except tk.TclError:pass
 
     def _poll_events(self):
         draw_needed=False
         while not self.events.empty():
             kind,v=self.events.get_nowait()
             if kind=='usb_previews':
-                token,mapping,errs=v
-                if token!=self.scan_token:continue
-                self.preview_loading=False;self.usb_preview.update(mapping);self.draw_tiles()
-                self.status.configure(text=f'Загружено миниатюр: {len(mapping)}; ошибок: {len(errs)}')
-            elif kind=='usb_preview_error':
-                token,msg=v
-                if token!=self.scan_token:continue
-                self.preview_loading=False;self.status.configure(text='Не удалось прочитать миниатюры: '+msg)
+                token,epoch,mapping,errs=v
+                if token!=self.scan_token or epoch!=self.preview_epoch or self._closing:
+                    continue
+                self.preview_loading=False
+                self.usb_preview.update(mapping)
+                for source,filename in mapping.items():
+                    self._paint_usb_thumbnail(source,filename)
+                for source,error in errs:
+                    self.preview_failed.add(source)
+                # Only the relevant tiles change; scrolling and selections stay put.
+                if errs and not mapping and not self.running:
+                    self.details.configure(text=f'Не удалось показать {len(errs)} миниатюр; оригиналы доступны для экспорта')
             elif kind=='usb_batch':
                 token,items,count=v
                 if token==self.scan_token:
@@ -990,7 +1002,6 @@ class App(ctk.CTk):
                     self.progress.stop();self.progress.configure(mode='determinate');self.progress.set(0);self.progress_row.pack_forget()
                     self.percentage.configure(text='Готово')
                     self.status.configure(text=f'Найдено {len(self.usb_items)} файлов' if not self.usb_items else f'Найдено {len(self.usb_items)} файлов · загрузка миниатюр')
-                    if self.usb_items:self.after(150,self.load_usb_previews)
                     draw_needed=True
             elif kind=='usb_scan_cancelled':
                 if v==self.scan_token:
