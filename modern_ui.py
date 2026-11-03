@@ -178,6 +178,8 @@ class App(ctk.CTk):
         self.usb_tile_frames={}
         self.usb_tile_labels={}
         self._closing=False
+        self._poll_after_id=None
+        self._monitor_after_id=None
         self.tile_checks=[]
         self.export_result=False
         self.scan_error=None
@@ -387,8 +389,8 @@ class App(ctk.CTk):
         self._set_iphone_state('detecting')
         self._update_empty_state()
         self.protocol('WM_DELETE_WINDOW',self.close_app)
-        self.after(120,self.poll)
-        self.after(600,self._monitor_iphone)
+        self._poll_after_id=self.after(120,self.poll)
+        self._monitor_after_id=self.after(600,self._monitor_iphone)
 
     def _set_iphone_state(self,state):
         """Keep the USB status and explanation in sync throughout the workflow.
@@ -467,7 +469,8 @@ class App(ctk.CTk):
                     connected=None
                 self.events.put(('device_presence',(generation,connected)))
             threading.Thread(target=check,daemon=True,name='HushDeviceProbe').start()
-        self.after(3500,self._monitor_iphone)
+        if not self._closing:
+            self._monitor_after_id=self.after(3500,self._monitor_iphone)
 
     def _handle_device_presence(self,connected):
         """Debounced attach/detach transitions; never auto-rescan repeatedly."""
@@ -952,6 +955,14 @@ class App(ctk.CTk):
                 'Прервать экспорт?', 'Остановить перенос и закрыть Hush Photo?'):
             return
         self._closing=True
+        # Cancel both recurring Tk callbacks before destroying the interpreter.
+        # Otherwise tests (or a reopened window) can receive stale "after" scripts.
+        for callback_id in (self._poll_after_id,self._monitor_after_id):
+            if callback_id is not None:
+                try:self.after_cancel(callback_id)
+                except tk.TclError:pass
+        self._poll_after_id=None
+        self._monitor_after_id=None
         self.scan_cancel.set()
         self.preview_cancel.set()
         self.cancel_event.set()
@@ -1045,7 +1056,7 @@ class App(ctk.CTk):
                 traceback.print_exc()
         finally:
             if not self._closing:
-                try:self.after(120,self.poll)
+                try:self._poll_after_id=self.after(120,self.poll)
                 except tk.TclError:pass
 
     def _poll_events(self):
