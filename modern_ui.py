@@ -537,12 +537,16 @@ class App(ctk.CTk):
                 self.details.configure(text='Выберите папку для экспорта' if count else 'Выберите файлы в текущем фильтре')
 
     def reset_page(self):
+        self._interrupt_preview_job()
         self.page=0
         self.draw_tiles()
+        self._reset_scroll()
 
     def change_page(self, step):
+        self._interrupt_preview_job()
         self.page=max(0,self.page+step)
         self.draw_tiles()
+        self._reset_scroll()
 
     def _page_items(self, visible):
         total=len(visible)
@@ -587,6 +591,7 @@ class App(ctk.CTk):
         self.page=0
         self._interrupt_preview_job()
         self.draw_tiles()
+        self._reset_scroll()
 
     def visible_group_paths(self):
         suffixes=group_suffixes(self.group.get())
@@ -756,39 +761,132 @@ class App(ctk.CTk):
         if value:self.selected.add(p)
         else:self.selected.discard(p)
         self._update_selection()
-    def load_usb_previews(self):
-        if self.group.get()=='Видео' or not self.usb.get() or not self.usb_items or self.running or self.preview_loading:return
-        needle=self.search.get().casefold().strip()
-        images=[x for x in self.usb_items if x['suffix'] in {'.heic','.heif','.jpg','.jpeg','.png','.dng','.tif','.tiff'} and needle in x['name'].casefold()]
-        batch=images[self.preview_offset:self.preview_offset+12]
-        self.preview_offset+=12
-        if not batch:return
-        from preview_cache import cache_file
-        cached={x['path']:str(cache_file(self.preview_cache,x['path'])) for x in batch
-                if cache_file(self.preview_cache,x['path']).is_file()}
-        self.usb_preview.update(cached)
-        wanted={x['path'] for x in batch if x['path'] not in cached}
-        if not wanted:
-            self.draw_tiles()
+    def _interrupt_preview_job(self):
+        """Switch viewport/source without waiting synchronously for old USB I/O."""
+        self.preview_cancel.set()
+        self.preview_cancel=threading.Event()
+        self.preview_epoch+=1
+        self.preview_loading=False
+
+    def _reset_scroll(self):
+        if self.preview._parent_frame.winfo_manager():
+            self.preview._parent_canvas.yview_moveto(0)
+
+    def _paint_usb_thumbnail(self, source, filename):
+        """Replace one placeholder in-place; never redraw or reset the scroll."""
+        label=self.usb_tile_labels.get(source)
+        if label is None or not label.winfo_exists():
+            return
+        try:
+            with Image.open(filename) as opened:
+                image=ImageOps.exif_transpose(opened)
+                image.thumbnail((132,108))
+                image=image.copy()
+            thumb=ctk.CTkImage(light_image=image,dark_image=image,size=image.size)
+            self.thumbnails.append(thumb)
+            label.configure(image=thumb,text='',height=114)
+        except (OSError,ValueError):
+            # Recover automatically if a previous session left a corrupt JPEG.
+            self.usb_preview.pop(source,None)
+            try:Path(filename).unlink(missing_ok=True)
+            except OSError:pass
+
+    def _request_visible_previews(self):
+        """Incrementally load visible photo cards when scrolling or paging.
+
+        One worker fetches at most four originals at a time. The GUI thread only
+        decodes the small JPEG thumbnails, not full-sized HEIC files.
+        """
+        if (self._closing or self.running or self.usb_scanning or
+                not self.scanned or not self.usb.get() or
+                self.group.get()!='Фото' or not self.usb_tile_frames):
+            return
+        if self.preview_loading or (self.preview_thread and self.preview_thread.is_alive()):
+            return
+        canvas=self.preview._parent_canvas
+        if not self.preview._parent_frame.winfo_manager() or canvas.winfo_height()<2:
+            return
+        from preview_cache import cache_file,visible_preview_paths
+        cards=[(path,tile.winfo_y(),max(170,tile.winfo_height()))
+               for path,tile in self.usb_tile_frames.items()]
+        visible=visible_preview_paths(cards,canvas.canvasy(0),canvas.winfo_height())
+        needed=[]
+        for path in visible:
+            if path in self.preview_failed:
+                continue
+            if path in self.usb_preview:
+                continue
+            cached=cache_file(self.preview_cache,path)
+            if cached.is_file() and cached.stat().st_size>0:
+                self.usb_preview[path]=str(cached)
+                self._paint_usb_thumbnail(path,cached)
+            else:
+                needed.append(path)
+            if len(needed)>=4:
+                break
+        if not needed:
             return
         self.preview_loading=True
         token=self.scan_token
-        self.status.configure(text='Загружаем миниатюры: оригиналы используются только временно…')
+        epoch=self.preview_epoch
+        cancelled=self.preview_cancel
         def work():
-            mapping={}; errors=[]
+            mapping={}
+            errors=[]
             try:
                 from iphone_usb import open_afc
                 from preview_cache import thumbnail_from_afc
                 with open_afc() as afc:
-                    for source in sorted(wanted):
+                    for source in needed:
+                        if cancelled.is_set():
+                            break
                         try:
-                            mapping[source]=str(thumbnail_from_afc(afc,source,self.preview_cache))
+                            result=thumbnail_from_afc(afc,source,self.preview_cache,cancelled=cancelled)
+                            if not cancelled.is_set():
+                                mapping[source]=str(result)
+                        except InterruptedError:
+                            break
                         except Exception as exc:
-                            errors.append(f'{source}: {exc}')
-                self.events.put(('usb_previews',(token,mapping,errors)))
+                            if not cancelled.is_set():
+                                errors.append((source,str(exc)))
             except Exception as exc:
-                self.events.put(('usb_preview_error',(token,str(exc))))
-        threading.Thread(target=work,daemon=True).start()
+                if not cancelled.is_set():
+                    errors.extend((source,str(exc)) for source in needed
+                                  if source not in mapping)
+            finally:
+                self.events.put(('usb_previews',(token,epoch,mapping,errors)))
+        self.preview_thread=threading.Thread(target=work,daemon=True,name='HushPreviewWorker')
+        self.preview_thread.start()
+
+    def close_app(self):
+        """Cancel background operations and clear previews before exiting."""
+        if self._closing:
+            return
+        if self.running and not messagebox.askyesno(
+                'Прервать экспорт?', 'Остановить перенос и закрыть Hush Photo?'):
+            return
+        self._closing=True
+        self.scan_cancel.set()
+        self.preview_cancel.set()
+        self.cancel_event.set()
+        self._close_deadline=time.monotonic()+20
+        self.withdraw()
+        self._finish_close()
+
+    def _finish_close(self):
+        if any(worker is not None and worker.is_alive() for worker in
+               (self.preview_thread,getattr(self,'export_thread',None))):
+            if time.monotonic()<self._close_deadline:
+                self.after(100,self._finish_close)
+                return
+        from preview_cache import clear_preview_cache
+        try:
+            clear_preview_cache(self.preview_cache)
+        except OSError:
+            # A crashed/stalled USB worker cannot block exit forever.
+            # Startup cleanup retries removing locked cache entries.
+            pass
+        self.destroy()
 
     def start(self):
         if self.running:return
@@ -831,7 +929,8 @@ class App(ctk.CTk):
                     result=export_directory(source,dest,opts,lambda n,t,f:self.events.put(('progress',(n,t,f))),self.cancel_event,selected_paths=chosen,folder_mode=dialog.result_folders)
                 self.events.put(('done',result))
             except Exception as e:self.events.put(('error',str(e)))
-        threading.Thread(target=worker,daemon=True).start()
+        self.export_thread=threading.Thread(target=worker,daemon=True,name='HushExportWorker')
+        self.export_thread.start()
     def cancel(self):self.cancel_event.set();self.cancel_btn.configure(state='disabled');self.status.configure(text='Останавливаем после текущего файла…')
     def poll(self):
         """Keep UI event processing alive even when a widget callback fails."""
