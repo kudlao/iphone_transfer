@@ -150,6 +150,22 @@ class LayoutTests(unittest.TestCase):
         self.assertFalse(self.app._is_connection_error('Ошибка преобразования JPEG'))
         self.assertTrue(self.app._is_connection_error('iPhone disconnected'))
 
+    def test_true_usb_disconnect_requires_rescan_but_conversion_error_does_not(self):
+        self.app.usb_items=[
+            {'path':'DCIM/100APPLE/IMG_1.HEIC','name':'IMG_1.HEIC','suffix':'.heic'}]
+        self.app.scanned=True
+        self.app.selected={'DCIM/100APPLE/IMG_1.HEIC'}
+        self.app.draw_tiles()
+        self.app.events.put(('error','iPhone disconnected'))
+        with mock.patch('modern_ui.messagebox.showerror'):
+            self.app._poll_events()
+        self.assertEqual(self.app.connection_state,'disconnected')
+        self.assertFalse(self.app.scanned)
+        self.assertEqual(self.app.go.cget('state'),'disabled')
+        self.assertFalse(self.app.selected)
+        self.assertIn('iPhone не отвечает',self.app.connection_badge.cget('text'))
+        self.assertTrue(self.app.empty.winfo_manager())
+
     def test_scan_failure_does_not_enable_partial_export(self):
         self.app.usb_items = [
             {'path':'DCIM/100APPLE/A.HEIC',
