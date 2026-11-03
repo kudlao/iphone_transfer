@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from pathlib import Path
 import shutil
 import tempfile
@@ -62,6 +63,35 @@ def clear_legacy_cache(cache_dir: Path) -> None:
             shutil.rmtree(target)
     for name in ('.hushphoto-manifest.json', 'hushphoto_last_export.json'):
         (root / name).unlink(missing_ok=True)
+
+
+def clear_preview_cache(cache_dir: Path) -> int:
+    """Delete only app-owned thumbnails and legacy preview files.
+
+    Called at app startup and on shutdown. Never touch the actual export folder:
+    the cache uses SHA-256 file names under HushPhoto/previews only.
+    """
+    root = Path(cache_dir)
+    clear_legacy_cache(root)
+    if not root.is_dir():
+        return 0
+    removed = 0
+    for entry in root.iterdir():
+        if not entry.is_file():
+            continue
+        if not re.fullmatch(r'[0-9a-f]{64}\.jpg(?:\.part)?', entry.name):
+            continue
+        try:
+            entry.unlink()
+            removed += 1
+        except OSError:
+            # Locked files are cleared on the next clean startup.
+            pass
+    try:
+        root.rmdir()  # only if empty; never delete foreign content
+    except OSError:
+        pass
+    return removed
 
 
 def thumbnail_from_afc(afc, source: str, cache_dir: Path,
