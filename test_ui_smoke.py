@@ -1,5 +1,8 @@
 """Headed Windows GUI smoke tests catch Tk geometry-manager regressions."""
 import sys
+import tempfile
+from pathlib import Path
+from PIL import Image
 import unittest
 from unittest import mock
 
@@ -8,12 +11,13 @@ from unittest import mock
 class LayoutTests(unittest.TestCase):
     def setUp(self):
         from modern_ui import App
-        with mock.patch('preview_cache.clear_legacy_cache'), mock.patch('preview_cache.trim_cache'):
+        with mock.patch('preview_cache.clear_preview_cache'):
             self.app = App()
         self.app.withdraw()
 
     def tearDown(self):
-        self.app.destroy()
+        if self.app.winfo_exists():
+            self.app.destroy()
 
     def test_welcome_screen_shows_primary_action(self):
         self.assertTrue(self.app.empty.winfo_manager())
@@ -39,6 +43,39 @@ class LayoutTests(unittest.TestCase):
         self.app.group_changed()
         self.app.update_idletasks()
         self.assertTrue(self.app.preview._parent_frame.winfo_manager())
+
+    def test_preview_is_painted_without_resetting_scroll_or_selection(self):
+        with tempfile.TemporaryDirectory() as d:
+            filename=Path(d)/'preview.jpg'
+            Image.new('RGB',(120,100),'blue').save(filename)
+            key='DCIM/100APPLE/IMG_1.HEIC'
+            self.app.usb_items=[{'path':key,'name':'IMG_1.HEIC','suffix':'.heic'}]
+            self.app.scanned=True
+            self.app.selected={key}
+            self.app.draw_tiles()
+            self.app.update_idletasks()
+            label=self.app.usb_tile_labels[key]
+            before=self.app.preview._parent_canvas.yview()
+            self.app._paint_usb_thumbnail(key,filename)
+            self.app.update_idletasks()
+            self.assertTrue(label.cget('image'))
+            self.assertEqual(before,self.app.preview._parent_canvas.yview())
+            self.assertTrue(self.app.tile_checks[0].get())
+            self.assertTrue(self.app.preview._parent_frame.winfo_manager())
+
+    def test_window_close_clears_only_preview_cache(self):
+        from preview_cache import cache_file
+        with tempfile.TemporaryDirectory() as d:
+            self.app.preview_cache=Path(d)/'previews'
+            self.app.preview_cache.mkdir()
+            cached=cache_file(self.app.preview_cache,'DCIM/IMG_1.HEIC')
+            cached.write_bytes(b'preview')
+            original=Path(d)/'original.heic'
+            original.write_bytes(b'original')
+            self.app.close_app()
+            self.assertFalse(cached.exists())
+            self.assertTrue(original.exists())
+            self.assertFalse(self.app.winfo_exists())
 
     def test_video_filter_updates_export_button_and_actual_file_scope(self):
         from media_groups import photo_pair_index
