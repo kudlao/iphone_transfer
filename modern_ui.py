@@ -917,6 +917,8 @@ class App(ctk.CTk):
         # Use exactly the paths represented by the export button, captured before
         # opening the dialog. Hidden Live Photo MOVs must not leak into clips.
         if not chosen:return
+        # A transfer has priority over fetching more previews from the same USB device.
+        self._interrupt_preview_job()
         self.cancel_event.clear(); self.export_result=False; self.set_running(True)
         if usb:self._set_iphone_state('exporting')
         self.progress.configure(mode='determinate'); self.progress.set(0); self.progress_row.pack(fill='x',padx=18,pady=(0,12))
