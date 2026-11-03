@@ -94,6 +94,17 @@ def clear_preview_cache(cache_dir: Path) -> int:
     return removed
 
 
+def visible_preview_paths(cards, top: float, viewport_height: float, margin: float = 160):
+    """Return just the on-screen thumbnails and one nearby row in display order.
+
+    cards is an iterable of (path, tile_y, tile_height) values. This pure helper
+    avoids loading an entire iPhone library when only a few cards are on screen.
+    """
+    bottom = top + max(0, viewport_height)
+    return [path for path, y, height in cards
+            if y <= bottom + margin and y + max(1, height) >= top - margin]
+
+
 def thumbnail_from_afc(afc, source: str, cache_dir: Path,
                        cancelled=None, max_bytes: int = MAX_CACHE_BYTES) -> Path:
     """Fetch a single photo, resize it to <=320px, remove temp original.
