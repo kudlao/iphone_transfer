@@ -183,6 +183,11 @@ class App(ctk.CTk):
         self.scan_error=None
         self.scanned=False
         self.connection_state='idle'
+        self._device_probe_generation=0
+        self._device_probe_pending=False
+        self._device_connected=False
+        self._device_missed=0
+        self._auto_scan_suppressed=False
 
         self.header=ctk.CTkFrame(self,fg_color=PANEL,corner_radius=0,height=76)
         self.header.pack(fill='x')
@@ -377,10 +382,11 @@ class App(ctk.CTk):
             font=('Segoe UI',11),text_color=MUTED)
         self.percentage.pack(side='right')
 
-        self._set_iphone_state('idle')
+        self._set_iphone_state('detecting')
         self._update_empty_state()
         self.protocol('WM_DELETE_WINDOW',self.close_app)
         self.after(120,self.poll)
+        self.after(600,self._monitor_iphone)
 
     def _set_iphone_state(self,state):
         """Keep the USB status and explanation in sync throughout the workflow.
@@ -390,12 +396,16 @@ class App(ctk.CTk):
         """
         self.connection_state=state
         states={
-            'idle':('●  Готов к подключению',
-                    'Подключите и разблокируйте iPhone.\nЗатем начните поиск.'),
+            'idle':('●  Ожидаем iPhone',
+                    'Подключите iPhone по USB.\\nМедиатека откроется автоматически.'),
+            'detecting':('●  Проверяем подключение…',
+                         'Ищем iPhone на компьютере.'),
+            'manual':('●  Автообнаружение недоступно',
+                       'Можно начать поиск вручную.'),
             'scanning':('●  Поиск на iPhone…',
                         'Считываем медиатеку iPhone.\nНе отключайте кабель.'),
-            'ready':('●  Медиатека загружена',
-                     f'Файлов: {len(self.usb_items)}.\nМожно выбирать и экспортировать.'),
+            'ready':('●  Медиатека готова',
+                     'Можно выбирать и экспортировать.'),
             'exporting':('●  Передача с iPhone…',
                          'Копируем выбранные файлы.\nНе отключайте кабель.'),
             'exported':('●  Медиатека доступна',
@@ -414,7 +424,7 @@ class App(ctk.CTk):
                               'Список файлов сохранён.\nМожно повторить экспорт.'),
         }
         label,detail=states[state]
-        self.connection_badge.configure(text=label,text_color=MUTED if state in ('idle','cancelled','disconnected','error') else ACC)
+        self.connection_badge.configure(text=label,text_color=MUTED if state in ('idle','detecting','manual','cancelled','disconnected','error') else ACC)
         self.source_name.configure(text=detail)
 
     @staticmethod
@@ -438,12 +448,59 @@ class App(ctk.CTk):
         self._set_iphone_state('disconnected')
         self.draw_tiles()
 
+    def _monitor_iphone(self):
+        """Non-blocking, periodic USB detection without media-library scans."""
+        if self._closing:return
+        if (self.usb.get() and not self.running and not self.usb_scanning
+                and not self.local_scanning and not self.preview_loading
+                and not (self.preview_thread and self.preview_thread.is_alive())
+                and not self._device_probe_pending):
+            self._device_probe_pending=True
+            generation=self._device_probe_generation
+            def check():
+                try:
+                    from iphone_usb import probe_iphone_connected
+                    connected=probe_iphone_connected()
+                except Exception:
+                    connected=None
+                self.events.put(('device_presence',(generation,connected)))
+            threading.Thread(target=check,daemon=True,name='HushDeviceProbe').start()
+        self.after(3500,self._monitor_iphone)
+
+    def _handle_device_presence(self,connected):
+        """Debounced attach/detach transitions; never auto-rescan repeatedly."""
+        if connected is None:
+            if not self.scanned and not self.usb_scanning and self.connection_state in ('detecting','idle'):
+                self._set_iphone_state('manual')
+            return
+        if connected:
+            self._device_missed=0
+            if not self._device_connected:
+                self._device_connected=True
+                if not self.scanned and not self.usb_scanning and not self._auto_scan_suppressed:
+                    self.refresh()
+            return
+        if self._device_connected:
+            self._device_missed+=1
+            if self._device_missed<2:return
+            self._device_connected=False
+            self._device_missed=0
+            self._auto_scan_suppressed=False
+            if self.scanned:
+                self._invalidate_disconnected_iphone('iPhone disconnected')
+            elif not self.usb_scanning:
+                self._set_iphone_state('idle')
+                self.draw_tiles()
+        elif self.connection_state=='detecting':
+            self._set_iphone_state('idle')
+
     def source_mode_changed(self, mode):
         self.usb.set(mode=='iPhone')
         self.source_changed()
 
     def stop_scan(self):
         if self.usb_scanning or self.local_scanning:
+            self._auto_scan_suppressed=True
             self.scan_cancel.set()
             self.status.configure(text='Останавливаем поиск…')
             self.empty_action.configure(state='disabled')
@@ -478,9 +535,9 @@ class App(ctk.CTk):
                        'Можно выбрать другую папку.')
             button='Повторить поиск' if self.usb.get() else 'Выбрать другую папку'
         elif self.usb.get():
-            title='Фотографии с вашего iPhone'
-            desc='Подключите и разблокируйте iPhone.\nПодтвердите «Доверять» и начните поиск.'
-            button='Найти фото и видео'
+            title='Подключите iPhone'
+            desc='Медиатека появится автоматически после подключения.\nРазблокируйте iPhone и подтвердите «Доверять».'
+            button='Проверить подключение'
         else:
             title='Добавьте фотографии'
             desc='Выберите папку на компьютере,\nчтобы увидеть фотографии и видео.'
@@ -525,16 +582,14 @@ class App(ctk.CTk):
     def _update_selection(self):
         count=len(self._current_export_paths())
         available=sum(1 for _ in self.visible_group_paths())
-        if available:
-            self.count.configure(text=f'{count} выбрано из {available} · {self.group.get()}' +
-                                 (f' / {self.video_filter.get()}' if self.group.get()=='Видео' else ''))
-        else:
-            self.count.configure(text='Нет файлов в текущем фильтре')
+        self.count.configure(text=f'Выбрано: {count}' if available and count else
+                                   ('Нет файлов' if not available and self.scanned else 'Выберите файлы'))
         if not self.running:
             self.go.configure(state='normal' if count and self.scanned and not self.usb_scanning and not self.local_scanning else 'disabled',
-                              text=f'Экспортировать · {count}' if count else 'Экспортировать')
+                              text='Экспортировать')
             if not self.export_result:
-                self.details.configure(text='Выберите папку для экспорта' if count else 'Выберите файлы в текущем фильтре')
+                self.details.configure(text='Выберите папку назначения' if count and not self.target.get() else
+                                       'Оригиналы останутся на устройстве' if count else 'Выберите файлы')
 
     def reset_page(self):
         self._interrupt_preview_job()
@@ -552,7 +607,7 @@ class App(ctk.CTk):
         total=len(visible)
         pages=max(1,(total+self.page_size-1)//self.page_size)
         self.page=min(self.page,pages-1)
-        self.page_info.configure(text=f'{self.page+1} / {pages} · {total} файлов' if total else '0 файлов')
+        self.page_info.configure(text=f'Страница {self.page+1} из {pages}' if total else '')
         self.page_back.configure(state='normal' if self.page>0 else 'disabled')
         self.page_forward.configure(state='normal' if self.page+1<pages else 'disabled')
         first=self.page*self.page_size
@@ -606,6 +661,11 @@ class App(ctk.CTk):
             self.source_mode.set('iPhone' if self.active_usb else 'Папка')
             return
         self.active_usb=self.usb.get()
+        self._device_probe_generation+=1
+        self._device_probe_pending=False
+        self._device_connected=False
+        self._device_missed=0
+        self._auto_scan_suppressed=False
         self.scan_error=None
         self.scanned=False
         self.scan_cancel.set(); self.usb_scanning=False
@@ -618,7 +678,7 @@ class App(ctk.CTk):
         elif not self.select_source.winfo_manager():
             self.select_source.pack(fill='x',padx=18,pady=(12,0),after=self.device_card)
         self.entries=[]; self.selected=set(); self.selected_by_group={'Фото':None,'Видео':None}; self.page=0; self.usb_items=[]; self.photo_index=set(); self.usb_preview={}; self.local_scanning=False; self.export_result=False
-        if usb:self._set_iphone_state('idle')
+        if usb:self._set_iphone_state('detecting')
         else:
             self.connection_state='local'
             self.connection_badge.configure(text='●  Локальная папка',text_color=MUTED)
@@ -635,6 +695,7 @@ class App(ctk.CTk):
         if path: self.target.set(path); self.target_name.configure(text=path if len(path)<28 else '…'+path[-26:])
     def refresh(self):
         if self.running:return
+        self._auto_scan_suppressed=False
         self.scan_error=None
         self.scanned=False
         self._interrupt_preview_job()
@@ -995,7 +1056,7 @@ class App(ctk.CTk):
                     self.photo_index.update(photo_pair_index(items))
                     # Default selection follows the chosen group during discovery.
                     self.selected.update(x['path'] for x in items if x['suffix'] in group_suffixes(self.group.get()) and (self.group.get()!='Видео' or matches_video_filter(x,None,self.video_filter.get(),self.photo_index)))
-                    self.status.configure(text=f'Найдено {count} файлов, сканирование продолжается…')
+                    self.status.configure(text='Сканируем медиатеку iPhone…')
                     draw_needed=True
             elif kind=='usb_scan_done':
                 if v==self.scan_token:
@@ -1006,7 +1067,7 @@ class App(ctk.CTk):
                     self.selected=set(self.visible_group_paths()); self.selected_by_group={'Фото':None,'Видео':None}
                     self.progress.stop();self.progress.configure(mode='determinate');self.progress.set(0);self.progress_row.pack_forget()
                     self.percentage.configure(text='Готово')
-                    self.status.configure(text=f'Найдено {len(self.usb_items)} файлов' if not self.usb_items else f'Найдено {len(self.usb_items)} файлов · загрузка миниатюр')
+                    self.status.configure(text='Медиатека готова')
                     draw_needed=True
             elif kind=='usb_scan_cancelled':
                 if v==self.scan_token:
@@ -1044,7 +1105,7 @@ class App(ctk.CTk):
             elif kind=='scan':
                 token,paths=v
                 if token==self.scan_token:self.local_scanning=False;self.refresh_btn.configure(state='normal');self.scanned=True;self.scan_error=None;self.entries=paths;self.photo_index=photo_pair_index(self.local_media_items());self.selected=set(self.visible_group_paths());self.selected_by_group={'Фото':None,'Видео':None};self.draw_tiles();self.status.configure(text='Выберите файлы для экспорта')
-            elif kind=='phase':self.status.configure(text=v);self.last_sample=None;self.speed=None
+            elif kind=='phase':self.status.configure(text='Завершаем экспорт…');self.last_sample=None;self.speed=None
             elif kind in ('usb','progress'):
                 now=time.monotonic()
                 if kind=='usb':bytes_done,bytes_total,name,n,total=v; unit=bytes_done; whole=bytes_total
@@ -1077,7 +1138,8 @@ class App(ctk.CTk):
                         self._set_iphone_state('export_errors')
                     else:
                         self._set_iphone_state('exported')
-                self.status.configure(text=f'{"Отменено" if cancelled else "Готово"}: {n}/{total}. Ошибок: {len(errors)}')
+                self.status.configure(text='Экспорт остановлен' if cancelled else
+                                           'Экспорт завершён с ошибками' if errors else 'Экспорт завершён')
                 messagebox.showinfo('Результат',f'Обработано: {n}/{total}\nОшибок: {len(errors)}\nРезультат: {self.target.get()}')
             elif kind=='error':
                 self.export_result=True;self.set_running(False)
