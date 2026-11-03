@@ -9,6 +9,7 @@ import subprocess
 import time
 import shutil
 import threading
+import tempfile
 from pathlib import Path, PurePosixPath
 
 EXTS={'.heic','.heif','.jpg','.jpeg','.png','.tif','.tiff','.mov','.mp4','.dng','.aae'}
@@ -73,7 +74,8 @@ class AFC:
                 setattr(self,attr,C.c_void_p())
     def __enter__(self):return self
     def __exit__(self,*_):self.close()
-    def listdir(self,path):
+    def listdir(self,path,cancelled=None):
+        if cancelled is not None and cancelled.is_set():raise InterruptedError('Поиск отменён')
         output=C.POINTER(C.c_char_p)()
         code=self.d.afc_read_directory(self.afc,path.encode('utf-8'),C.byref(output))
         self._ok(code,f'Чтение {path}')
@@ -84,11 +86,13 @@ class AFC:
                 if name not in ('.','..'): result.append(name)
                 i+=1
         finally:self.d.afc_dictionary_free(output)
+        if cancelled is not None and cancelled.is_set():raise InterruptedError('Поиск отменён')
         return result
     def read_to(self,path,destination,progress=None,cancelled=None):
         handle=C.c_uint64()
         self._ok(self.d.afc_file_open(self.afc,path.encode('utf-8'),1,C.byref(handle)),f'Открытие {path}')
         done=0
+        part=None
         try:
             destination=Path(destination)
             destination.parent.mkdir(parents=True,exist_ok=True)
@@ -104,7 +108,12 @@ class AFC:
                     if progress:progress(done)
             os.replace(part,destination)
             return done
-        finally:self.d.afc_file_close(self.afc,handle.value)
+        finally:
+            try:
+                self.d.afc_file_close(self.afc,handle.value)
+            finally:
+                if part is not None:
+                    part.unlink(missing_ok=True)
 
 
 class AFCCommandLine:
@@ -115,16 +124,77 @@ class AFCCommandLine:
         self.executable=str(executable)
         if not Path(self.executable).is_file():
             raise AFCError('afcclient.exe не найден: '+self.executable)
+        self.device_tool=Path(self.executable).with_name('idevice_id.exe')
+        self._last_probe=0.0
+        self._initial_devices=None
     def __enter__(self):return self
     def __exit__(self,*_):pass
-    def listdir(self,path):
-        p=subprocess.run([self.executable,'ls',path],capture_output=True,encoding='utf-8',errors='replace',timeout=80,
-                         creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-        if p.returncode or 'Error:' in p.stdout or 'Error:' in p.stderr:
-            raise AFCError('Не удалось прочитать '+path+': '+(p.stderr or p.stdout)[-400:])
-        return [name.strip() for name in p.stdout.splitlines() if name.strip() not in ('','.','..')]
+    def _ensure_connected(self,cancelled=None):
+        """Detect unplugged phones when idevice_id is bundled with afcclient."""
+        if cancelled is not None and cancelled.is_set():
+            raise InterruptedError('Поиск отменён')
+        if not self.device_tool.is_file():
+            return  # AFC ls still detects I/O failures on its own.
+        now=time.monotonic()
+        if self._initial_devices is not None and now-self._last_probe < 2:
+            return
+        try:
+            proc=subprocess.run(
+                [str(self.device_tool),'-l'],capture_output=True,
+                timeout=5,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        except subprocess.TimeoutExpired as exc:
+            raise AFCError('iPhone не отвечает. Проверь USB-кабель и разблокировку.') from exc
+        if proc.returncode:
+            raise AFCError('Не удалось проверить подключение iPhone (idevice_id).')
+        present={line.strip() for line in proc.stdout.decode('utf-8','replace').splitlines()
+                 if line.strip()}
+        if not present or (self._initial_devices is not None and not (present & self._initial_devices)):
+            raise AFCError('iPhone отключён. Подключи устройство и повтори поиск.')
+        if self._initial_devices is None:
+            self._initial_devices=present
+        self._last_probe=time.monotonic()
+        if cancelled is not None and cancelled.is_set():
+            raise InterruptedError('Поиск отменён')
+
+    def listdir(self,path,cancelled=None):
+        """Never block the UI on a stalled AFC directory listing indefinitely.
+
+        A file redirect avoids PIPE deadlock for very large DCIM directory listings.
+        """
+        self._ensure_connected(cancelled)
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            process=subprocess.Popen(
+                [self.executable,'ls',path],stdin=subprocess.DEVNULL,
+                stdout=stdout,stderr=stderr,
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            started=time.monotonic()
+            try:
+                while process.poll() is None:
+                    if cancelled is not None and cancelled.is_set():
+                        raise InterruptedError('Поиск отменён')
+                    if time.monotonic()-started > 20:
+                        raise AFCError('iPhone перестал отвечать при чтении '+path+'. Проверь подключение.')
+                    time.sleep(.15)
+                stdout.seek(0);stderr.seek(0)
+                output=stdout.read().decode('utf-8','replace')
+                errors=stderr.read().decode('utf-8','replace')
+                combined=(output+'\n'+errors).lower()
+                if (process.returncode or 'error:' in combined
+                        or 'disconnected' in combined or 'not connected' in combined):
+                    raise AFCError('Не удалось прочитать '+path+': '+(errors or output)[-400:])
+                if cancelled is not None and cancelled.is_set():
+                    raise InterruptedError('Поиск отменён')
+                return [name.strip() for name in output.splitlines()
+                        if name.strip() not in ('','.','..')]
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    try:process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill();process.wait()
+
     def read_to(self,path,destination,progress=None,cancelled=None):
-        """Retry transient AFC disconnects with a fresh process, never append partial files."""
+        """Retry disconnects; bound idle time and avoid child stdout pipe deadlocks."""
         destination=Path(destination)
         destination.parent.mkdir(parents=True,exist_ok=True)
         part=destination.with_name(destination.name+'.part')
@@ -133,49 +203,55 @@ class AFCCommandLine:
             if cancelled is not None and cancelled.is_set():
                 raise InterruptedError('Отменено')
             part.unlink(missing_ok=True)
-            process=subprocess.Popen(
-                [self.executable,'get',path,str(part)],
-                stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
-            try:
-                while process.poll() is None:
-                    if cancelled is not None and cancelled.is_set():
-                        process.terminate()
-                        try: process.wait(timeout=3)
-                        except subprocess.TimeoutExpired:
-                            process.kill()
-                            process.wait()
-                        raise InterruptedError('Отменено')
-                    if progress: progress(part.stat().st_size if part.exists() else 0)
-                    time.sleep(.25)
-                stdout,stderr=process.communicate(timeout=10)
-                output=(stderr or stdout).decode('utf-8','replace')
-                disconnected='[disconnected]' in output.lower()
-                failed=(process.returncode != 0 or not part.exists()
-                        or b'Error:' in stdout or b'Error:' in stderr or disconnected)
-                if failed:
-                    if disconnected and attempt+1<attempts:
-                        # A new afcclient invocation reopens the iPhone connection.
-                        # Restart the whole file; never treat a partial as complete.
-                        if progress: progress(0)
-                        if cancelled is not None and cancelled.wait(1+attempt):
+            with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+                process=subprocess.Popen(
+                    [self.executable,'get',path,str(part)],
+                    stdin=subprocess.DEVNULL,stdout=stdout_file,stderr=stderr_file,
+                    creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+                last_progress=time.monotonic()
+                previous_size=0
+                try:
+                    while process.poll() is None:
+                        if cancelled is not None and cancelled.is_set():
                             raise InterruptedError('Отменено')
-                        continue
-                    # Only the last lines matter; avoid huge progress spam in reports.
-                    detail=output.strip().splitlines()
-                    useful=[line.strip() for line in detail if line.strip()
-                            and ('disconnect' in line.lower() or 'error' in line.lower())]
-                    message=(useful[-1] if useful else (detail[-1] if detail else 'Неизвестная ошибка'))
-                    raise AFCError(f'Ошибка копирования {path} (попытка {attempt+1}/{attempts}): {message[:240]}')
-                size=part.stat().st_size
-                os.replace(part,destination)
-                if progress: progress(size)
-                return size
-            finally:
-                if process.poll() is None:
-                    process.kill()
-                    process.wait()
-                part.unlink(missing_ok=True)
+                        size=part.stat().st_size if part.exists() else 0
+                        if size>previous_size:
+                            previous_size=size
+                            last_progress=time.monotonic()
+                        if time.monotonic()-last_progress>45:
+                            raise AFCError('iPhone не отвечает при копировании '+path+
+                                           '. Проверь USB-кабель и повтори экспорт.')
+                        if progress:progress(size)
+                        time.sleep(.25)
+                    stdout_file.seek(0);stderr_file.seek(0)
+                    stdout=stdout_file.read();stderr=stderr_file.read()
+                    output=(stderr or stdout).decode('utf-8','replace')
+                    disconnected='disconnected' in output.lower()
+                    failed=(process.returncode != 0 or not part.exists()
+                            or b'error:' in stdout.lower() or b'error:' in stderr.lower()
+                            or disconnected)
+                    if failed:
+                        if disconnected and attempt+1<attempts:
+                            if progress:progress(0)
+                            if cancelled is not None and cancelled.wait(1+attempt):
+                                raise InterruptedError('Отменено')
+                            continue
+                        detail=output.strip().splitlines()
+                        useful=[line.strip() for line in detail if line.strip()
+                                and ('disconnect' in line.lower() or 'error' in line.lower())]
+                        message=(useful[-1] if useful else (detail[-1] if detail else 'Неизвестная ошибка'))
+                        raise AFCError(f'Ошибка копирования {path} (попытка {attempt+1}/{attempts}): {message[:240]}')
+                    size=part.stat().st_size
+                    os.replace(part,destination)
+                    if progress:progress(size)
+                    return size
+                finally:
+                    if process.poll() is None:
+                        process.terminate()
+                        try:process.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            process.kill();process.wait()
+                    part.unlink(missing_ok=True)
 
 
 def _afc_executable():
@@ -188,6 +264,53 @@ def _afc_executable():
     return next((p for p in locations if p.is_file()),None)
 
 
+
+def probe_iphone_connected():
+    """Passive USB presence probe; True/False, or None if tools cannot tell.
+
+    Never open an AFC session just to monitor an iPhone. Prefer idevice_id,
+    which does not read the media library. If only afcclient is bundled, use
+    a short, read-only root listing as a fallback. Caller runs this in a
+    background thread, never on Tk's event loop.
+    """
+    executable=_afc_executable()
+    candidates=[]
+    if executable:
+        candidates.append(Path(executable).with_name('idevice_id.exe'))
+    configured=os.environ.get('HUSH_AFC_TOOLS','')
+    if configured:
+        candidates.append(Path(configured)/'idevice_id.exe')
+    path_tool=shutil.which('idevice_id.exe')
+    if path_tool:
+        candidates.append(Path(path_tool))
+    idevice=next((path for path in candidates if path.is_file()),None)
+    flags=getattr(subprocess,'CREATE_NO_WINDOW',0)
+    if idevice:
+        try:
+            result=subprocess.run([str(idevice),'-l'],stdin=subprocess.DEVNULL,
+                                  capture_output=True,timeout=4,creationflags=flags)
+        except (OSError,subprocess.TimeoutExpired):
+            return None
+        if result.returncode:
+            return None
+        devices=[line.strip() for line in result.stdout.decode('utf-8','replace').splitlines()
+                 if line.strip()]
+        return bool(devices)
+    if executable:
+        try:
+            result=subprocess.run([str(executable),'ls','/'],stdin=subprocess.DEVNULL,
+                                  capture_output=True,timeout=4,creationflags=flags)
+        except (OSError,subprocess.TimeoutExpired):
+            return None
+        combined=(result.stdout+result.stderr).decode('utf-8','replace').lower()
+        if result.returncode != 0 or any(marker in combined for marker in (
+                'error:', 'no device', 'not connected', 'disconnected', 'failed')):
+            return False
+        # Some afcclient builds exit with 0 yet print no entries without a phone.
+        return bool(result.stdout.strip())
+    return None
+
+
 def open_afc():
     # Prefer an explicitly configured or bundled afcclient over an untested DLL ABI.
     exe=_afc_executable()
@@ -198,20 +321,22 @@ def open_afc():
                        'или положи набор утилит в папку native.') from e
 
 
-def _media_roots(afc):
+def _media_roots(afc,cancelled=None):
     # AFC root corresponds to /var/mobile/Media. Apple may expose DCIM itself
     # or monthly directories. Never assume the Windows Explorer structure maps 1:1.
-    root=set(afc.listdir('/'))
+    root=set(afc.listdir('/',cancelled=cancelled))
     if 'DCIM' in root:return ['/DCIM']
     return ['/']
 
 
 def _enumerate(afc,cancelled=None):
-    stack=_media_roots(afc)
+    stack=_media_roots(afc,cancelled)
     while stack:
         if cancelled is not None and cancelled.is_set():break
         base=stack.pop()
-        for name in afc.listdir(base):
+        for name in afc.listdir(base,cancelled=cancelled):
+            if cancelled is not None and cancelled.is_set():
+                raise InterruptedError('Поиск отменён')
             path=base.rstrip('/')+'/'+name
             extension=Path(name).suffix.lower()
             if extension in EXTS:
@@ -228,6 +353,8 @@ def list_iphone_media(on_batch=None,cancelled=None,batch_size=64):
             if len(batch)>=batch_size:
                 if on_batch:on_batch(batch,len(result))
                 batch=[]
+        if cancelled is not None and cancelled.is_set():
+            raise InterruptedError('Поиск отменён')
         if batch and on_batch:on_batch(batch,len(result))
         return result
 

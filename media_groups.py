@@ -11,6 +11,16 @@ VIDEO_SUFFIXES=frozenset({'.mov','.mp4'})
 def group_suffixes(group):
     return VIDEO_SUFFIXES if group == 'Видео' else PHOTO_SUFFIXES
 
+def selected_in_scope(selected, scoped_paths):
+    """Only media in the active photo/video filter may be exported.
+
+    Search and pagination do not affect this scope. A saved selection in another
+    sub-filter is preserved for later, but must not leak into the current export.
+    Keep path values intact (USB uses strings; local folders use Path objects).
+    """
+    return set(selected).intersection(scoped_paths)
+
+
 def selected_paths_for_group(items, group):
     suffixes=group_suffixes(group)
     return {x['path'] for x in items if x['suffix'].lower() in suffixes}

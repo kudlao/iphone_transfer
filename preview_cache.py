@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from pathlib import Path
 import shutil
 import tempfile
@@ -64,6 +65,54 @@ def clear_legacy_cache(cache_dir: Path) -> None:
         (root / name).unlink(missing_ok=True)
 
 
+def clear_preview_cache(cache_dir: Path) -> int:
+    """Delete only app-owned thumbnails and legacy preview files.
+
+    Called at app startup and on shutdown. Never touch the actual export folder:
+    the cache uses SHA-256 file names under HushPhoto/previews only.
+    """
+    root = Path(cache_dir)
+    clear_legacy_cache(root)
+    if not root.is_dir():
+        return 0
+    removed = 0
+    for entry in root.iterdir():
+        if entry.is_dir() and not entry.is_symlink() and entry.name.startswith('hushphoto-preview-'):
+            # Also remove whole-original scratch files left by an abnormal exit.
+            try:
+                shutil.rmtree(entry)
+                removed += 1
+            except OSError:
+                pass
+            continue
+        if not entry.is_file():
+            continue
+        if not re.fullmatch(r'[0-9a-f]{64}\.jpg(?:\.part)?', entry.name):
+            continue
+        try:
+            entry.unlink()
+            removed += 1
+        except OSError:
+            # Locked files are cleared on the next clean startup.
+            pass
+    try:
+        root.rmdir()  # only if empty; never delete foreign content
+    except OSError:
+        pass
+    return removed
+
+
+def visible_preview_paths(cards, top: float, viewport_height: float, margin: float = 160):
+    """Return just the on-screen thumbnails and one nearby row in display order.
+
+    cards is an iterable of (path, tile_y, tile_height) values. This pure helper
+    avoids loading an entire iPhone library when only a few cards are on screen.
+    """
+    bottom = top + max(0, viewport_height)
+    return [path for path, y, height in cards
+            if y <= bottom + margin and y + max(1, height) >= top - margin]
+
+
 def thumbnail_from_afc(afc, source: str, cache_dir: Path,
                        cancelled=None, max_bytes: int = MAX_CACHE_BYTES) -> Path:
     """Fetch a single photo, resize it to <=320px, remove temp original.
@@ -78,7 +127,9 @@ def thumbnail_from_afc(afc, source: str, cache_dir: Path,
         return out
     if cancelled is not None and cancelled.is_set():
         raise InterruptedError('Отменено')
-    with tempfile.TemporaryDirectory(prefix='hushphoto-preview-') as scratch:
+    # Keep temporary full originals inside the app-owned cache, so crash cleanup
+    # can remove them at the next startup, too.
+    with tempfile.TemporaryDirectory(prefix='hushphoto-preview-',dir=cache_dir) as scratch:
         original = Path(scratch) / 'original'
         afc.read_to('/' + source.lstrip('/'), original, cancelled=cancelled)
         if cancelled is not None and cancelled.is_set():

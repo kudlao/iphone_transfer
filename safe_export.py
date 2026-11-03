@@ -48,7 +48,8 @@ def organized_path(source:str,folder_mode:str='original',taken_date=None)->Path:
     rel=safe_relative(source)
     if folder_mode=='original':return rel
     if folder_mode=='year-month':
-        dt=taken_date or datetime.now()
+        if taken_date is None:return Path('Без даты',rel.name)
+        dt=taken_date
         return Path(f'{dt.year:04d}-{dt.month:02d}',rel.name)
     if folder_mode=='flat':return Path(rel.name)
     raise ValueError('Неизвестный режим каталогов')
@@ -110,6 +111,8 @@ def copy_verified(afc,source:str,dest_root:Path,manifest:dict,progress=None,canc
         return 'copied',final,transferred
     finally:
         if staging.exists():staging.unlink()
+        # AFC backends can fail before publishing a .part file; remove that too.
+        staging.with_name(staging.name+'.part').unlink(missing_ok=True)
 
 def incremental_export(afc,paths,destination,progress=None,cancelled=None,folder_mode='original',dates=None):
     destination=Path(destination);destination.mkdir(parents=True,exist_ok=True)
