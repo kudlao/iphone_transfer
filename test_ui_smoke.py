@@ -125,8 +125,7 @@ class LayoutTests(unittest.TestCase):
         self.app.usb_scanning=True
         self.app._set_iphone_state('scanning')
         self.app.events.put(('usb_scan_done',self.app.scan_token))
-        with mock.patch.object(self.app,'load_usb_previews'):
-            self.app._poll_events()
+        self.app._poll_events()
         self.assertEqual(self.app.connection_state,'ready')
         self.assertIn('Медиатека загружена',self.app.connection_badge.cget('text'))
         self.assertIn('Можно выбирать и экспортировать',self.app.source_name.cget('text'))
