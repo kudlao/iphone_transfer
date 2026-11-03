@@ -14,7 +14,7 @@ from main import IMAGE_EXTS, VIDEO_EXTS, ExportOptions, export_directory
 from media_groups import group_suffixes, matches_video_filter, video_category, photo_pair_index, selected_in_scope
 
 register_heif_opener()
-# Follow the Windows light/dark preference with an iOS-inspired palette.
+# Use the Windows system light/dark preference with a restrained native palette.
 ctk.set_appearance_mode('system')
 ctk.set_default_color_theme('blue')
 BG=('#F5F6F8','#111319')
