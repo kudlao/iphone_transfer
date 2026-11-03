@@ -159,9 +159,9 @@ class App(ctk.CTk):
         self.events=queue.Queue()
         self.cancel_event=threading.Event()
         self.running=False
-        from preview_cache import clear_legacy_cache,trim_cache
-        clear_legacy_cache(self.preview_cache)
-        trim_cache(self.preview_cache)
+        # Preview files are temporary, not a permanent photo library.
+        from preview_cache import clear_preview_cache
+        clear_preview_cache(self.preview_cache)
         self.last_sample=None
         self.speed=None
         self.scan_token=0
@@ -170,8 +170,14 @@ class App(ctk.CTk):
         self.usb_scanning=False
         self.local_scanning=False
         self.usb_draw_at=0
-        self.preview_offset=0
         self.preview_loading=False
+        self.preview_cancel=threading.Event()
+        self.preview_epoch=0
+        self.preview_thread=None
+        self.preview_failed=set()
+        self.usb_tile_frames={}
+        self.usb_tile_labels={}
+        self._closing=False
         self.tile_checks=[]
         self.export_result=False
         self.scan_error=None
@@ -298,10 +304,6 @@ class App(ctk.CTk):
             fg_color=ALT,hover_color=SELECTED,text_color=FG,
             corner_radius=10,command=lambda:self.select_all(False))
         self.none_btn.pack(side='left')
-        self.preview_btn=ctk.CTkButton(
-            self.tools,text='Загрузить ещё 12 миниатюр',height=32,
-            fg_color='transparent',hover_color=ALT,text_color=ACC,
-            anchor='w',command=self.load_usb_previews)
 
         self.empty=ctk.CTkFrame(self.body,fg_color=PANEL,corner_radius=18)
         self.empty.pack(fill='both',expand=True)
@@ -377,6 +379,7 @@ class App(ctk.CTk):
 
         self._set_iphone_state('idle')
         self._update_empty_state()
+        self.protocol('WM_DELETE_WINDOW',self.close_app)
         self.after(120,self.poll)
 
     def _set_iphone_state(self,state):
@@ -501,15 +504,10 @@ class App(ctk.CTk):
                 self.preview.pack(fill='both',expand=True,before=self.footer)
             if not self.pager.winfo_manager():
                 self.pager.pack(fill='x',pady=(9,0),before=self.footer)
-            if self.usb.get() and self.group.get()=='Фото':
-                if not self.preview_btn.winfo_manager():
-                    self.preview_btn.pack(anchor='w')
-            else:
-                self.preview_btn.pack_forget()
+
         else:
             self.refresh_btn.pack_forget()
             self.tools.pack_forget()
-            self.preview_btn.pack_forget()
             self.preview.pack_forget()
             self.pager.pack_forget()
             if not self.empty.winfo_manager():
@@ -568,7 +566,6 @@ class App(ctk.CTk):
             checkbox.configure(state=state)
         if running:self.cancel_btn.pack(side='right',padx=(10,0),before=self.go)
         else:self.cancel_btn.pack_forget()
-        self.preview_btn.configure(state='disabled' if running or not self.usb.get() or self.group.get()=='Видео' else 'normal')
         if not running:self._update_selection()
 
     def video_filter_changed(self, _=None):
@@ -588,8 +585,7 @@ class App(ctk.CTk):
         remembered=self.selected_by_group[self.displayed_group]
         self.selected=set(self.visible_group_paths()) if remembered is None else set(remembered)
         self.page=0
-        self.preview_offset=0
-        self.preview_btn.configure(state='disabled' if self.group.get()=='Видео' or not self.usb.get() else 'normal')
+        self._interrupt_preview_job()
         self.draw_tiles()
 
     def visible_group_paths(self):
@@ -608,14 +604,15 @@ class App(ctk.CTk):
         self.scan_error=None
         self.scanned=False
         self.scan_cancel.set(); self.usb_scanning=False
-        self.preview_loading=False
+        self._interrupt_preview_job()
+        self.preview_failed.clear()
         self.progress.stop();self.progress_row.pack_forget()
         usb=self.usb.get(); self.scan_token+=1
         if usb:
             self.select_source.pack_forget()
         elif not self.select_source.winfo_manager():
             self.select_source.pack(fill='x',padx=18,pady=(12,0),after=self.device_card)
-        self.entries=[]; self.selected=set(); self.selected_by_group={'Фото':None,'Видео':None}; self.page=0; self.usb_items=[]; self.photo_index=set(); self.usb_preview={}; self.local_scanning=False; self.preview_btn.configure(state='normal' if usb and self.group.get()=='Фото' else 'disabled'); self.export_result=False
+        self.entries=[]; self.selected=set(); self.selected_by_group={'Фото':None,'Видео':None}; self.page=0; self.usb_items=[]; self.photo_index=set(); self.usb_preview={}; self.local_scanning=False; self.export_result=False
         if usb:self._set_iphone_state('idle')
         else:
             self.connection_state='local'
@@ -635,7 +632,8 @@ class App(ctk.CTk):
         if self.running:return
         self.scan_error=None
         self.scanned=False
-        self.preview_loading=False
+        self._interrupt_preview_job()
+        self.preview_failed.clear()
         self.page=0
         self.selected_by_group={'Фото':None,'Видео':None}
         if self.usb.get():
@@ -643,7 +641,7 @@ class App(ctk.CTk):
             self.scan_cancel=threading.Event()
             cancelled=self.scan_cancel
             self.scan_token+=1; token=self.scan_token
-            self.usb_items=[]; self.photo_index=set(); self.selected=set(); self.usb_scanning=True; self.preview_offset=0; self.usb_preview={}
+            self.usb_items=[]; self.photo_index=set(); self.selected=set(); self.usb_scanning=True; self.usb_preview={}
             self._set_iphone_state('scanning')
             self.draw_tiles()
             self.status.configure(text='Читаем папки iPhone…')
