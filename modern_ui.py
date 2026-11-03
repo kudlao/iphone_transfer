@@ -375,6 +375,7 @@ class App(ctk.CTk):
             font=('Segoe UI',11),text_color=MUTED)
         self.percentage.pack(side='right')
 
+        self._set_iphone_state('idle')
         self._update_empty_state()
         self.after(120,self.poll)
 
@@ -391,11 +392,15 @@ class App(ctk.CTk):
             'scanning':('●  Поиск на iPhone…',
                         'Считываем медиатеку iPhone.\nНе отключайте кабель.'),
             'ready':('●  Медиатека загружена',
-                     f'Найдено {len(self.usb_items)} файлов.\nМожно выбирать и экспортировать.'),
+                     f'Файлов: {len(self.usb_items)}.\nМожно выбирать и экспортировать.'),
             'exporting':('●  Передача с iPhone…',
                          'Копируем выбранные файлы.\nНе отключайте кабель.'),
             'exported':('●  Медиатека доступна',
                         'Экспорт завершён.\nМожно продолжить перенос.'),
+            'export_cancelled':('●  Медиатека доступна',
+                                 'Экспорт остановлен.\nМожно продолжить перенос.'),
+            'export_errors':('●  Медиатека доступна',
+                              'Перенос завершён с ошибками.\nМожно повторить экспорт.'),
             'cancelled':('●  Поиск остановлен',
                          'Чтобы продолжить работу,\nзапустите поиск повторно.'),
             'disconnected':('●  iPhone не отвечает',
@@ -939,7 +944,14 @@ class App(ctk.CTk):
                 n,total,errors,cancelled=v;self.export_result=True;self.set_running(False)
                 if self.usb.get():
                     # Closing AFC after a transfer is normal and is not a disconnect.
-                    self._set_iphone_state('disconnected' if any(self._is_connection_error(e) for e in errors) else 'exported')
+                    if any(self._is_connection_error(e) for e in errors):
+                        self._set_iphone_state('disconnected')
+                    elif cancelled:
+                        self._set_iphone_state('export_cancelled')
+                    elif errors:
+                        self._set_iphone_state('export_errors')
+                    else:
+                        self._set_iphone_state('exported')
                 self.status.configure(text=f'{"Отменено" if cancelled else "Готово"}: {n}/{total}. Ошибок: {len(errors)}')
                 messagebox.showinfo('Результат',f'Обработано: {n}/{total}\nОшибок: {len(errors)}\nРезультат: {self.target.get()}')
             elif kind=='error':
