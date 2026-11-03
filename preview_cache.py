@@ -77,6 +77,14 @@ def clear_preview_cache(cache_dir: Path) -> int:
         return 0
     removed = 0
     for entry in root.iterdir():
+        if entry.is_dir() and not entry.is_symlink() and entry.name.startswith('hushphoto-preview-'):
+            # Also remove whole-original scratch files left by an abnormal exit.
+            try:
+                shutil.rmtree(entry)
+                removed += 1
+            except OSError:
+                pass
+            continue
         if not entry.is_file():
             continue
         if not re.fullmatch(r'[0-9a-f]{64}\.jpg(?:\.part)?', entry.name):
@@ -119,7 +127,9 @@ def thumbnail_from_afc(afc, source: str, cache_dir: Path,
         return out
     if cancelled is not None and cancelled.is_set():
         raise InterruptedError('Отменено')
-    with tempfile.TemporaryDirectory(prefix='hushphoto-preview-') as scratch:
+    # Keep temporary full originals inside the app-owned cache, so crash cleanup
+    # can remove them at the next startup, too.
+    with tempfile.TemporaryDirectory(prefix='hushphoto-preview-',dir=cache_dir) as scratch:
         original = Path(scratch) / 'original'
         afc.read_to('/' + source.lstrip('/'), original, cancelled=cancelled)
         if cancelled is not None and cancelled.is_set():
