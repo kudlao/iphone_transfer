@@ -397,7 +397,7 @@ class App(ctk.CTk):
         self.connection_state=state
         states={
             'idle':('●  Ожидаем iPhone',
-                    'Подключите iPhone по USB.\\nМедиатека откроется автоматически.'),
+                    'Подключите iPhone по USB.\nМедиатека откроется автоматически.'),
             'detecting':('●  Проверяем подключение…',
                          'Ищем iPhone на компьютере.'),
             'manual':('●  Автообнаружение недоступно',
@@ -1035,7 +1035,14 @@ class App(ctk.CTk):
         draw_needed=False
         while not self.events.empty():
             kind,v=self.events.get_nowait()
-            if kind=='usb_previews':
+            if kind=='device_presence':
+                generation,connected=v
+                if generation!=self._device_probe_generation:
+                    continue
+                self._device_probe_pending=False
+                if self.usb.get() and not self.running and not self.usb_scanning:
+                    self._handle_device_presence(connected)
+            elif kind=='usb_previews':
                 token,epoch,mapping,errs=v
                 if token!=self.scan_token or epoch!=self.preview_epoch or self._closing:
                     continue
