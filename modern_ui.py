@@ -188,6 +188,8 @@ class App(ctk.CTk):
         self._device_connected=False
         self._device_missed=0
         self._auto_scan_suppressed=False
+        self._auto_scan_retry_count=0
+        self._auto_scan_retry_after=0
 
         self.header=ctk.CTkFrame(self,fg_color=PANEL,corner_radius=0,height=76)
         self.header.pack(fill='x')
@@ -477,8 +479,19 @@ class App(ctk.CTk):
             self._device_missed=0
             if not self._device_connected:
                 self._device_connected=True
+                self._auto_scan_retry_count=0
+                self._auto_scan_retry_after=time.monotonic()+12
                 if not self.scanned and not self.usb_scanning and not self._auto_scan_suppressed:
                     self.refresh()
+            elif (self.scan_error and self.connection_state in ('error','disconnected')
+                  and not self.scanned and not self.usb_scanning
+                  and not self._auto_scan_suppressed
+                  and self._auto_scan_retry_count<2
+                  and time.monotonic()>=self._auto_scan_retry_after):
+                # Give the user time to unlock and tap Trust. Do not hammer AFC.
+                self._auto_scan_retry_count+=1
+                self._auto_scan_retry_after=time.monotonic()+12*(self._auto_scan_retry_count+1)
+                self.refresh()
             return
         if self._device_connected:
             self._device_missed+=1
@@ -486,6 +499,8 @@ class App(ctk.CTk):
             self._device_connected=False
             self._device_missed=0
             self._auto_scan_suppressed=False
+            self._auto_scan_retry_count=0
+            self._auto_scan_retry_after=0
             if self.scanned:
                 self._invalidate_disconnected_iphone('iPhone disconnected')
             elif not self.usb_scanning:
@@ -666,6 +681,8 @@ class App(ctk.CTk):
         self._device_connected=False
         self._device_missed=0
         self._auto_scan_suppressed=False
+        self._auto_scan_retry_count=0
+        self._auto_scan_retry_after=0
         self.scan_error=None
         self.scanned=False
         self.scan_cancel.set(); self.usb_scanning=False
@@ -1070,6 +1087,8 @@ class App(ctk.CTk):
                     self.usb_scanning=False
                     self.refresh_btn.configure(state='normal')
                     self.scanned=True
+                    self._auto_scan_retry_count=0
+                    self._auto_scan_retry_after=0
                     self._set_iphone_state('ready')
                     self.selected=set(self.visible_group_paths()); self.selected_by_group={'Фото':None,'Видео':None}
                     self.progress.stop();self.progress.configure(mode='determinate');self.progress.set(0);self.progress_row.pack_forget()
