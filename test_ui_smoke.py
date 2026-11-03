@@ -16,8 +16,10 @@ class LayoutTests(unittest.TestCase):
         self.app.withdraw()
 
     def tearDown(self):
-        if self.app.winfo_exists():
-            self.app.destroy()
+        # close_app() may already have destroyed the Tk interpreter.
+        # Querying winfo_exists() afterwards raises TclError on Windows.
+        if not self.app._closing:
+            self.app.close_app()
 
     def test_welcome_screen_shows_primary_action(self):
         self.assertTrue(self.app.empty.winfo_manager())
@@ -75,7 +77,8 @@ class LayoutTests(unittest.TestCase):
             self.app.close_app()
             self.assertFalse(cached.exists())
             self.assertTrue(original.exists())
-            self.assertFalse(self.app.winfo_exists())
+            self.assertTrue(self.app._closing)
+            # No Tk calls after close_app(): the Tcl interpreter is gone.
 
     def test_video_filter_updates_export_button_and_actual_file_scope(self):
         from media_groups import photo_pair_index
@@ -127,7 +130,7 @@ class LayoutTests(unittest.TestCase):
         self.app.events.put(('usb_scan_done',self.app.scan_token))
         self.app._poll_events()
         self.assertEqual(self.app.connection_state,'ready')
-        self.assertIn('Медиатека загружена',self.app.connection_badge.cget('text'))
+        self.assertIn('Медиатека готова',self.app.connection_badge.cget('text'))
         self.assertIn('Можно выбирать и экспортировать',self.app.source_name.cget('text'))
         self.assertNotIn('1',self.app.source_name.cget('text'))
         self.assertNotIn('Подключите',self.app.source_name.cget('text'))
