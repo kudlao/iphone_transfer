@@ -90,12 +90,14 @@ class LayoutTests(unittest.TestCase):
         self.app.group.set('Видео')
         self.app.group_changed()
         self.assertEqual(len(self.app._current_export_paths()),2)
-        self.assertIn('2',self.app.go.cget('text'))
+        self.assertEqual(self.app.go.cget('text'),'Экспортировать')
+        self.assertEqual(self.app.count.cget('text'),'Выбрано: 2')
 
         self.app.video_filter.set('Видеоролики')
         self.app.video_filter_changed()
         self.assertEqual(self.app._current_export_paths(),{'DCIM/100APPLE/CLIP.MOV'})
-        self.assertIn('1',self.app.go.cget('text'))
+        self.assertEqual(self.app.go.cget('text'),'Экспортировать')
+        self.assertEqual(self.app.count.cget('text'),'Выбрано: 1')
         self.assertEqual(self.app.go.cget('state'),'normal')
 
         self.app.selected.discard('DCIM/100APPLE/CLIP.MOV')
@@ -106,7 +108,8 @@ class LayoutTests(unittest.TestCase):
         self.app.video_filter.set('Live Photos')
         self.app.video_filter_changed()
         self.assertEqual(self.app._current_export_paths(),{'DCIM/100APPLE/IMG_1.MOV'})
-        self.assertIn('1',self.app.go.cget('text'))
+        self.assertEqual(self.app.go.cget('text'),'Экспортировать')
+        self.assertEqual(self.app.count.cget('text'),'Выбрано: 1')
 
     def test_scanning_device_card_shows_scanning_in_both_lines(self):
         self.app.usb_scanning=True
@@ -126,7 +129,8 @@ class LayoutTests(unittest.TestCase):
             self.app._poll_events()
         self.assertEqual(self.app.connection_state,'ready')
         self.assertIn('Медиатека загружена',self.app.connection_badge.cget('text'))
-        self.assertIn('Файлов: 1',self.app.source_name.cget('text'))
+        self.assertIn('Можно выбирать и экспортировать',self.app.source_name.cget('text'))
+        self.assertNotIn('1',self.app.source_name.cget('text'))
         self.assertNotIn('Подключите',self.app.source_name.cget('text'))
         self.assertTrue(self.app.scanned)
         self.assertEqual(self.app.go.cget('state'),'normal')
@@ -202,6 +206,53 @@ class LayoutTests(unittest.TestCase):
         self.assertFalse(self.app.selected)
         self.assertIn('iPhone не отвечает',self.app.connection_badge.cget('text'))
         self.assertTrue(self.app.empty.winfo_manager())
+
+    def test_device_is_auto_scanned_once_per_connection(self):
+        with mock.patch.object(self.app,'refresh') as refresh:
+            self.app._handle_device_presence(True)
+            self.app._handle_device_presence(True)
+            refresh.assert_called_once_with()
+            self.assertTrue(self.app._device_connected)
+
+    def test_unplug_needs_two_observations_before_reset(self):
+        self.app.usb_items=[
+            {'path':'DCIM/100APPLE/IMG_1.HEIC',
+             'name':'IMG_1.HEIC','suffix':'.heic'}]
+        self.app.selected={'DCIM/100APPLE/IMG_1.HEIC'}
+        self.app.scanned=True
+        self.app._device_connected=True
+        self.app._set_iphone_state('ready')
+        self.app.draw_tiles()
+        self.app._handle_device_presence(False)
+        self.assertTrue(self.app.scanned)
+        self.app._handle_device_presence(False)
+        self.assertFalse(self.app.scanned)
+        self.assertEqual(self.app.connection_state,'disconnected')
+        with mock.patch.object(self.app,'refresh') as refresh:
+            self.app._handle_device_presence(True)
+            refresh.assert_called_once_with()
+
+    def test_cancelled_search_does_not_auto_restart_until_replug(self):
+        self.app.usb_scanning=True
+        self.app.stop_scan()
+        self.assertTrue(self.app._auto_scan_suppressed)
+        self.app.usb_scanning=False
+        with mock.patch.object(self.app,'refresh') as refresh:
+            self.app._handle_device_presence(True)
+            refresh.assert_not_called()
+
+    def test_minimal_counts_are_shown_once(self):
+        self.app.usb_items=[
+            {'path':f'DCIM/100APPLE/IMG_{i}.MOV',
+             'name':f'IMG_{i}.MOV','suffix':'.mov'} for i in range(71)]
+        self.app.scanned=True
+        self.app.group.set('Видео')
+        self.app.video_filter.set('Видеоролики')
+        self.app.group_changed()
+        self.assertEqual(self.app.count.cget('text'),'Выбрано: 71')
+        self.assertEqual(self.app.go.cget('text'),'Экспортировать')
+        self.assertNotIn('71',self.app.page_info.cget('text'))
+        self.assertNotIn('71',self.app.source_name.cget('text'))
 
     def test_scan_failure_does_not_enable_partial_export(self):
         self.app.usb_items = [
