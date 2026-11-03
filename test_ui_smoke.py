@@ -71,6 +71,60 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(self.app._current_export_paths(),{'DCIM/100APPLE/IMG_1.MOV'})
         self.assertIn('1',self.app.go.cget('text'))
 
+    def test_scanning_device_card_shows_scanning_in_both_lines(self):
+        self.app.usb_scanning=True
+        self.app._set_iphone_state('scanning')
+        self.assertEqual(self.app.connection_state,'scanning')
+        self.assertIn('Поиск на iPhone',self.app.connection_badge.cget('text'))
+        self.assertIn('Считываем медиатеку',self.app.source_name.cget('text'))
+        self.assertNotIn('Подключите',self.app.source_name.cget('text'))
+
+    def test_scan_complete_updates_device_card_to_ready(self):
+        self.app.usb_items=[
+            {'path':'DCIM/100APPLE/IMG_1.HEIC','name':'IMG_1.HEIC','suffix':'.heic'}]
+        self.app.usb_scanning=True
+        self.app._set_iphone_state('scanning')
+        self.app.events.put(('usb_scan_done',self.app.scan_token))
+        with mock.patch.object(self.app,'load_usb_previews'):
+            self.app._poll_events()
+        self.assertEqual(self.app.connection_state,'ready')
+        self.assertIn('Медиатека загружена',self.app.connection_badge.cget('text'))
+        self.assertIn('Найдено 1 файлов',self.app.source_name.cget('text'))
+        self.assertNotIn('Подключите',self.app.source_name.cget('text'))
+        self.assertTrue(self.app.scanned)
+        self.assertEqual(self.app.go.cget('state'),'normal')
+
+    def test_export_completion_does_not_mark_phone_disconnected(self):
+        self.app.usb_items=[
+            {'path':'DCIM/100APPLE/IMG_1.HEIC','name':'IMG_1.HEIC','suffix':'.heic'}]
+        self.app.selected={'DCIM/100APPLE/IMG_1.HEIC'}
+        self.app.scanned=True
+        self.app.draw_tiles()
+        self.app._set_iphone_state('ready')
+        self.app.set_running(True)
+        self.app._set_iphone_state('exporting')
+        self.assertIn('Копируем',self.app.source_name.cget('text'))
+        self.app.events.put(('done',(1,1,[],False)))
+        with mock.patch('modern_ui.messagebox.showinfo'):
+            self.app._poll_events()
+        self.assertEqual(self.app.connection_state,'exported')
+        self.assertIn('Экспорт завершён',self.app.source_name.cget('text'))
+        self.assertNotIn('Подключите',self.app.source_name.cget('text'))
+        self.assertTrue(self.app.scanned)
+        self.assertEqual(self.app.go.cget('state'),'normal')
+
+    def test_non_connection_export_error_does_not_mark_usb_disconnected(self):
+        self.app.scanned=True
+        self.app._set_iphone_state('ready')
+        self.app.events.put(('error','Ошибка преобразования JPEG'))
+        with mock.patch('modern_ui.messagebox.showerror'):
+            self.app._poll_events()
+        self.assertEqual(self.app.connection_state,'transfer_error')
+        self.assertNotIn('не отвечает',self.app.connection_badge.cget('text'))
+        self.assertTrue(self.app.scanned)
+        self.assertFalse(self.app._is_connection_error('Ошибка преобразования JPEG'))
+        self.assertTrue(self.app._is_connection_error('iPhone disconnected'))
+
     def test_scan_failure_does_not_enable_partial_export(self):
         self.app.usb_items = [
             {'path':'DCIM/100APPLE/A.HEIC',
