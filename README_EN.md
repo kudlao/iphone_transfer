@@ -1,88 +1,143 @@
-# Hush Photo — User Guide (Windows 10/11 x64)
+# Hush Photo
 
-[Русский](README.md) | [English](README_EN.md) | [简体中文](README_ZH.md)
+**Export iPhone photos and videos to Windows without cloud transfers**
 
-Free export of photos, videos and Live Photos from iPhone over USB (AFC), or from a local folder. The original files on the iPhone are never modified.
+[Русский](README.md) · [English](README_EN.md) · [简体中文](README_ZH.md)
 
-## 1. Requirements and setup
+Hush Photo is a free, open-source application for transferring media from an iPhone to a Windows 10/11 (x64) computer. It reads accessible files over USB using Apple File Conduit (AFC), provides a searchable media browser, preserves original files, and supports repeat exports after an interrupted transfer.
 
-- Connect your iPhone using USB, unlock it and approve **Trust This Computer**. Install Apple Devices / Apple Mobile Device Support on Windows.
-- USB access requires the unpacked Windows x64 **libimobiledevice** package, including `afcclient.exe` and its accompanying DLLs. Supply the **directory containing** `afcclient.exe`, not the executable path.
+You can also process photos and videos from a local folder. **Hush Photo is not a complete iPhone backup solution.**
 
-### Configuring the AFC tools
+## Features
 
-Choose **one** method:
+- **Photos and videos:** export HEIC, HEIF, JPEG, PNG, TIFF, DNG, MOV, and MP4. Videos are copied without transcoding. The AFC scanner can detect AAE sidecars, but the picker does not offer them for separate export.
+- **Live Photos:** preserve a still image and its paired MOV when both share the same name and directory. Pairing does not use Apple's internal asset identifiers.
+- **Automatic USB discovery:** scan automatically when a connected iPhone is detected; manual scanning remains available when device discovery tools are unavailable.
+- **Media browser:** on-demand photo thumbnails while scrolling, filename search, 36-item pages, and separate photo/video selection.
+- **Video filters:** All videos, Video clips, and Live Photos. Only selected items from the active filter are exported; selections in other categories are retained.
+- **Reliable repeat exports:** verified copies can be skipped, name collisions are resolved safely, and operations can be canceled.
+- **Organization:** preserve the DCIM layout, use a single destination folder, or organize by capture month when metadata allows.
+- **Windows interface:** system light/dark appearance, connection status, transfer progress, throughput, and estimated remaining time.
 
-**Option 1 — bundle alongside the application (best for portable use).** Create a `native` directory next to `HushPhoto.exe` and put `afcclient.exe` and its libimobiledevice DLLs there, e.g. `HushPhoto\native\afcclient.exe`. When running from source, `native` should be next to `iphone_usb.py`.
+## Requirements
 
-**Option 2 — environment variable (without copying files).** Before starting Hush Photo, set the tools directory in PowerShell:
+| Component | Requirement |
+| --- | --- |
+| Operating system | Windows 10/11, x64 |
+| iPhone | Unlocked, with computer trust approved |
+| USB access | Apple Mobile Device Support and a compatible Windows build of libimobiledevice |
+| Source installation | Python 3.11 x64 recommended; packages in `requirements.txt` |
+| Portable package | The complete `HushPhoto` folder from the generated archive; Python is not required on the target PC |
+
+Install Apple Devices on Windows, or another official Apple component providing Apple Mobile Device Support. Drivers and third-party USB tools can affect device access.
+
+### Configure USB tools
+
+USB media access requires `afcclient.exe` and matching DLL dependencies from the **same** libimobiledevice distribution. `idevice_id.exe` is recommended for automatic device detection.
+
+Choose one location:
+
+1. **Bundled tools:** place the binaries under `native` beside `HushPhoto.exe` (portable), or beside `iphone_usb.py` (running from source).
+2. **Environment variable:** point `HUSH_AFC_TOOLS` to the directory containing the utilities:
+   `$env:HUSH_AFC_TOOLS = 'D:\Tools\libimobiledevice'`
+3. **System PATH:** add the tools directory to `PATH` and restart Hush Photo.
+
+Supply a **directory**, not the full path to an executable. To verify the utilities in PowerShell:
 
 ```powershell
-$env:HUSH_AFC_TOOLS = 'D:\Tools\libimobiledevice'
+.\idevice_id.exe -l
+.\afcclient.exe ls /DCIM
 ```
 
-Replace the example with your own directory. This setting applies to the current PowerShell session and processes launched from it. To make it permanent, add a user environment variable named `HUSH_AFC_TOOLS` in Windows system settings and restart the app.
+The first command should list the connected device ID; the second should show its accessible DCIM contents. When automatic detection is unavailable, use the application's manual connection check.
 
-**Option 3 — system `PATH`.** Add the directory containing `afcclient.exe` to your Windows `PATH`, then restart the application. Do not add the executable file itself.
+## Using Hush Photo
 
-**When building a portable EXE:** Run `build_portable.bat` from a shell where `HUSH_AFC_TOOLS` is defined. The build script copies the executable and DLLs into `dist\HushPhoto\native`, so no further configuration is needed on another computer. Without that variable, the tools are not automatically packaged.
+1. Connect the iPhone via USB, unlock it, and select **Trust** when prompted. Hush Photo checks for the device in the background and starts scanning automatically. You can also check the connection manually or use **Refresh** to rescan.
+2. Select **Photos** or **Videos**. Video filters distinguish All videos, Video clips, and Live Photos. Search by filename; thumbnails of photos are fetched automatically while scrolling or changing pages.
+3. Select the files to export. **Select all** and **Clear selection** affect the current search results without clearing hidden selections. The selection count appears beneath the Media Library heading.
+4. Choose the destination folder and click **Export**. Review the export options, then click **Start export**.
+5. Progress, the current file, speed, approximate ETA, and cancel controls are available during the operation. The scanned library remains available afterward unless the USB connection has been lost.
 
-**Verify:** From the AFC tools directory, run `.\idevice_id.exe -l` and `.\afcclient.exe ls /DCIM`. To verify the configured path, run `Test-Path (Join-Path $env:HUSH_AFC_TOOLS 'afcclient.exe')`; it should return `True`.
+To process existing files on your PC, switch the source from **iPhone** to **Folder**. Source and destination directories must not overlap.
 
-## 2. Running Hush Photo
+### Export options
 
-**Portable EXE:** Extract the **entire** `HushPhoto` directory from the portable archive and launch `HushPhoto.exe`. Python is not required. Do not move the EXE without its supporting files.
+| Mode | Output |
+| --- | --- |
+| **Originals** (default) | Source files without recompression or format conversion |
+| **Originals + JPEG** | Original photos and additional JPEG compatibility copies |
+| **JPEG** | JPEG derivatives; **USB exports also retain the originals** |
+| **TIFF** | TIFF derivatives; **USB exports also retain the originals** |
+| **Videos** | MOV and MP4 files copied without transcoding |
 
-**From source:** Install 64-bit Python 3.11+, extract the project, then run `start_windows.bat`. The first run requires internet access to install dependencies.
+JPEG quality is adjustable from 85 to 100 (default: 97). JPEG compression is lossy; full HDR-to-SDR tone mapping is not provided. Keep originals for archival purposes.
 
-**Build a portable package:** With 64-bit Python 3.11+ installed, run `build_portable.bat`. It installs dependencies, runs tests and, on success, creates `dist\HushPhoto-Windows-Portable.zip` and `dist\HushPhoto\HushPhoto.exe`. USB export requires additional setup if `afcclient.exe` is not bundled.
+The **Keep Live Photo motion (MOV)** option includes a same-name MOV from the same directory when exporting its still photo. It does not affect explicitly selected video-only exports.
 
-## 3. Exporting photos and videos
+**Destination structure:**
+- **By year and month:** `YYYY-MM` based on available capture metadata; items without a reliable date go into `Без даты` (No date).
+- **Original structure:** preserve the relative source path, including DCIM for USB exports.
+- **Single folder:** place files in the selected destination; handle identical filenames without overwriting unrelated content.
 
-1. Select **iPhone via USB** or **Local folder** as the source.
-2. Connect and unlock the iPhone. Hush Photo detects it automatically and starts scanning. If automatic detection is unavailable (for example, without `idevice_id.exe` or `afcclient.exe`), use **Check connection** to start a manual scan; **Refresh** rescans an existing library. Use the **Photos / Videos** selector at the top. The **Videos** group has **All videos**, **Video clips** and **Live Photos** filters. A MOV file paired with an image of the same basename in the same directory is categorized as a Live Photo video; other MOV/MP4 files are video clips. This filename-based heuristic does not read Apple's internal asset identifiers, so classification may be imperfect. Selection applies only to the current group. Open **Videos** and select the desired MOV/MP4 files for a video-only export. Photo thumbnails load automatically as you scroll or change pages; no manual load button is needed.
-3. Choose a destination directory and click **Export selected**.
-4. For **Photos**, **Originals** is the default (no recompression, preserves HDR and avoids redundant JPEG copies). You can choose **Originals + JPEG**, **JPEG**, or **TIFF**. Optionally include Live Photo MOV components and set JPEG quality (default 97). For **Videos**, MOV/MP4 files are copied directly, without transcoding or quality loss.
-5. Choose **Year and month (`2026-10`)**, **Flat folder**, or **Original directory structure**; then start the export.
-6. Check the output when the operation finishes. The interface displays the current filename, progress, speed and estimated remaining time.
+## Data integrity and storage
 
-Year/month organization uses the capture date when metadata provides one; Hush Photo does not invent a date when it is unavailable. When exporting **Photos**, a Live Photo usually includes its HEIC/JPEG still and matching MOV when that option is enabled; basename matching cannot identify every possible pairing. All MOV/MP4 files, including Live Photo MOV components, are also accessible under **Videos**. Verified, unchanged copies are skipped on subsequent USB exports. Original videos are never converted.
+Hush Photo does not modify files on the iPhone. Files are staged before being published to their final locations, preventing an interrupted download from replacing an existing export.
 
-### Video support and iPhone library details
+For **USB exports**, `.hushphoto-manifest.json` and `hushphoto_last_export.json` are stored in the destination directory. Repeat exports validate the locally stored size and SHA-256 digest before skipping an existing copy. This is **not** an independent comparison against an on-device iPhone checksum.
 
-- **MOV and MP4** are supported, including standalone clips and Live Photo MOV components. Files are preserved in their original format without compression or transcoding.
-- The **Photos / Videos** selector separates media lists for convenience. When exporting photos, you may include corresponding MOV files.
-- Hush Photo reads accessible **DCIM files over AFC**. These may include files from **Recently Deleted**. Hush Photo cannot reliably identify that album through AFC and does not delete anything from the phone.
-- The number of AFC files may differ from the number of assets in the Apple Photos app. A single Live Photo may contain multiple physical files, and Windows Explorer may expose different names or representations.
-- If an AFC video transfer fails, the app records an error. This does not prove the video is absent from Apple Photos. You may try Windows File Explorer. Files copied manually are not automatically added to the Hush Photo manifest.
-- If an iPhone video has visual artifacts in the default Windows player, test the same original in VLC. HEVC/HDR playback support may be the issue rather than file transfer.
+For **local-folder exports**, Hush Photo compares SHA-256 hashes to avoid duplicate content and writes `export_report.txt`.
 
-### Interface and selection
+Photo thumbnails are generated locally and cached temporarily at `%LOCALAPPDATA%\HushPhoto\previews`. They load in small batches for visible items and are cleared on normal application exit. Files left behind by a crash are cleaned at the next start, including temporary downloaded originals. **Cache cleanup never removes exported media.**
 
-- The UI follows the Windows light/dark appearance, with a compact iOS-inspired shell. The device card updates both its status and explanation during discovery and transfer. Finishing an export closes the AFC session, not the physical USB connection; the scanned library stays available for subsequent exports. Only an explicitly reported USB disconnection invalidates the library and requires a new scan. Connection errors show an inline retry action.
-- Large libraries use pages of 36 items; the heading shows the selected-file count once, the **Export** button has no duplicate number, and the pager only shows its current page; **Back** and **Next** reach files beyond the former 160-item limit.
-- Photo and video selections persist when switching categories. **All videos / Video clips / Live Photos** sub-filters restrict both the export button count and the actual export paths (e.g. 71 clips, not 1,818 videos). The other video sub-filter selections remain saved for later. Search only narrows the visible cards; **Select all** and **Clear selection** affect matching files rather than discarding hidden choices.
-- Photos default to capture-month folders (`YYYY-MM`), while videos default to the original structure. Items without a reliable capture date go into **Без даты** (No date).
-- USB remaining-time estimates are approximate when the total byte size is unavailable; transfer speed still uses actual copied bytes. **Stop scan** cancels discovery; an unplugged iPhone or a stalled AFC listing stops discovery with an error instead of leaving an infinite spinner.
+## Known limitations
 
-## 4. Repeated exports and local data
+- AFC may expose only part of the Photos library. iCloud-only items might not be stored on the device. DCIM file counts can differ from the number of items shown in Apple's Photos app.
+- AFC cannot reliably identify the **Recently Deleted** album. Hush Photo does not delete files from the iPhone and cannot guarantee that this album is excluded.
+- Live Photo MOV classification is based on filenames and directories and may be imperfect.
+- Video previews are represented by file-type cards; video-frame thumbnails are not generated.
+- After a physical USB disconnection, a new scan is required. Resume behavior skips completed and validated files; it does not continue a partially written file from the exact interrupted byte.
+- The portable build does not automatically include libimobiledevice unless those tools are provided during packaging.
 
-- USB exports use a local manifest and skip verified copies. Local-folder exports avoid duplicate files by comparing SHA-256; different content with the same name is retained under a new name. If the USB connection fails, run the export again. Completed files remain intact; an incomplete file is restarted from the beginning.
-- SHA-256 verification checks the locally downloaded file against the local manifest; it does **not** compare against an independently obtained iPhone SHA-256.
-- A temporary `.hushphoto-staging` directory is created under the destination. Temporary files are removed after processing; some empty directories may remain. Do not delete staging files while exporting.
-- Thumbnail cache: `%LOCALAPPDATA%\HushPhoto\previews`, resized JPEGs up to 320×320 pixels. Thumbnails are fetched in small viewport-aware batches, without fetching the whole library or resetting the current scroll position. The complete original may be downloaded temporarily to render its preview, then promptly removed. **The thumbnail cache is cleared when Hush Photo closes normally**, and any leftovers from an abnormal exit are removed on the next launch. The export folder is never touched by preview-cache cleanup.
-- To keep original source data without unnecessary extra copies, use **Originals** with MOV components; choose **Originals + JPEG** when compatibility copies are wanted. JPEG encoding is lossy; full HDR-to-SDR tone mapping is not guaranteed. Preserve the original HEIC files.
+## Run, test, and build
 
-## 5. Troubleshooting
+**Run from source:**
 
-- Check the USB cable, unlock the iPhone, confirm computer trust and install Apple Devices.
-- From the folder with `afcclient.exe`, run `.\idevice_id.exe -l` and `.\afcclient.exe ls /DCIM` in PowerShell.
-- For the portable edition, ensure `native\afcclient.exe` and the DLLs are present alongside the app. Rebuild after modifying source files: an existing EXE is not updated automatically.
-- Photos whose originals are stored only in iCloud may be unavailable over USB. Download the originals to the iPhone first.
-- If an export fails, **do not delete originals from the phone**. Verify downloaded files before taking further action.
+```powershell
+.\start_windows.bat
+```
 
-**Note:** USB behavior depends on the iOS version and installed libraries. Automated tests cannot replace verification on a physical iPhone.
+The launcher installs missing Python packages before starting the app. If dependencies are already installed, you can run `py modern_ui.py` directly.
 
-### Temporary directory cleanup
+**Run automated tests:**
 
-After export, Hush Photo removes **only empty** `.hushphoto-staging` and `DCIM` directories (the latter when files are reorganized by month). Non-empty directories and incomplete source files are not removed. In **Original directory structure** mode, `DCIM` remains because it contains exported media. The `.hushphoto-manifest.json` and `hushphoto_last_export.json` files are used to track incremental exports.
+```powershell
+py -m unittest -q tests_next tests_preview_cache test_media_groups tests_iphone_scan test_ui_smoke
+```
+
+GUI tests require an interactive Windows session. Physical USB export still needs testing with an actual iPhone.
+
+**Create a portable package:**
+
+```powershell
+.\build_portable.bat
+```
+
+The build script reuses `.build-venv`, installs required packages, runs the tests, creates `dist\HushPhoto`, and packages `dist\HushPhoto-Windows-Portable.zip`. It reports five named stages for troubleshooting. Close any running `HushPhoto.exe` before rebuilding.
+
+If `HUSH_AFC_TOOLS` points to a directory containing `afcclient.exe`, or if `native\afcclient.exe` is present in the repository, matching EXE and DLL files are copied into the portable directory. On another PC, extract the **entire** `HushPhoto` folder; the EXE alone is insufficient.
+
+## Troubleshooting
+
+| Symptom | Suggested checks |
+| --- | --- |
+| iPhone is not detected | USB cable, unlock/trust prompt, Apple Mobile Device Support, `idevice_id.exe -l` |
+| Scan does not start | `afcclient.exe` and its DLLs, `native` / `HUSH_AFC_TOOLS` / `PATH`; try the manual scan |
+| Scan stops with an error | Reconnect and unlock the iPhone; verify access to DCIM |
+| Photo preview is missing | The original may be available only in iCloud, or the preview may be unreadable; export can still work |
+| Transfer is interrupted | Export to the same destination again; validated copies will be skipped |
+| HEVC/HDR video does not play correctly | Verify the original using a player with appropriate codec support |
+
+## License
+
+Hush Photo source code is distributed under the [MIT license](LICENSE). Third-party components, including Apple Mobile Device Support and libimobiledevice, are subject to their respective licensing and redistribution terms; review those terms before bundling binaries.
