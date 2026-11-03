@@ -213,6 +213,24 @@ class LayoutTests(unittest.TestCase):
             refresh.assert_called_once_with()
             self.assertTrue(self.app._device_connected)
 
+    def test_auto_detection_retries_after_unlock_with_a_bound(self):
+        self.app._device_connected=True
+        self.app.scan_error='Trust not yet accepted'
+        self.app.connection_state='error'
+        self.app._auto_scan_retry_after=0
+        self.app._auto_scan_retry_count=0
+        with mock.patch.object(self.app,'refresh') as refresh:
+            self.app._handle_device_presence(True)
+            refresh.assert_called_once_with()
+            self.assertEqual(self.app._auto_scan_retry_count,1)
+            refresh.reset_mock()
+            self.app._handle_device_presence(True)
+            refresh.assert_not_called()
+            self.app._auto_scan_retry_after=0
+            self.app._auto_scan_retry_count=2
+            self.app._handle_device_presence(True)
+            refresh.assert_not_called()
+
     def test_unplug_needs_two_observations_before_reset(self):
         self.app.usb_items=[
             {'path':'DCIM/100APPLE/IMG_1.HEIC',
