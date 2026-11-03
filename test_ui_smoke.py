@@ -89,7 +89,7 @@ class LayoutTests(unittest.TestCase):
             self.app._poll_events()
         self.assertEqual(self.app.connection_state,'ready')
         self.assertIn('Медиатека загружена',self.app.connection_badge.cget('text'))
-        self.assertIn('Найдено 1 файлов',self.app.source_name.cget('text'))
+        self.assertIn('Файлов: 1',self.app.source_name.cget('text'))
         self.assertNotIn('Подключите',self.app.source_name.cget('text'))
         self.assertTrue(self.app.scanned)
         self.assertEqual(self.app.go.cget('state'),'normal')
@@ -112,6 +112,31 @@ class LayoutTests(unittest.TestCase):
         self.assertNotIn('Подключите',self.app.source_name.cget('text'))
         self.assertTrue(self.app.scanned)
         self.assertEqual(self.app.go.cget('state'),'normal')
+
+    def test_cancelled_export_preserves_media_library(self):
+        self.app.usb_items=[
+            {'path':'DCIM/100APPLE/IMG_1.HEIC','name':'IMG_1.HEIC','suffix':'.heic'}]
+        self.app.scanned=True
+        self.app.selected={'DCIM/100APPLE/IMG_1.HEIC'}
+        self.app.draw_tiles()
+        self.app._set_iphone_state('exporting')
+        self.app.events.put(('done',(0,1,[],True)))
+        with mock.patch('modern_ui.messagebox.showinfo'):
+            self.app._poll_events()
+        self.assertEqual(self.app.connection_state,'export_cancelled')
+        self.assertTrue(self.app.scanned)
+        self.assertIn('Экспорт остановлен',self.app.source_name.cget('text'))
+        self.assertEqual(self.app.go.cget('state'),'normal')
+
+    def test_partial_non_usb_error_does_not_mark_device_offline(self):
+        self.app.scanned=True
+        self.app._set_iphone_state('exporting')
+        self.app.events.put(('done',(3,4,['Ошибка конвертации JPEG'],False)))
+        with mock.patch('modern_ui.messagebox.showinfo'):
+            self.app._poll_events()
+        self.assertEqual(self.app.connection_state,'export_errors')
+        self.assertTrue(self.app.scanned)
+        self.assertIn('завершён с ошибками',self.app.source_name.cget('text'))
 
     def test_non_connection_export_error_does_not_mark_usb_disconnected(self):
         self.app.scanned=True
