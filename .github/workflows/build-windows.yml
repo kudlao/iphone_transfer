@@ -1,4 +1,4 @@
-name: Build Windows portable
+name: Windows CI — tests and build verification
 on:
   workflow_dispatch:
   push:
@@ -8,10 +8,17 @@ on:
       - 'requirements.txt'
       - 'build_portable.bat'
       - '.github/workflows/build-windows.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '*.py'
+      - 'requirements.txt'
+      - 'build_portable.bat'
+      - '.github/workflows/build-windows.yml'
 permissions:
   contents: read
 jobs:
-  portable:
+  windows-ci:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,19 +26,13 @@ jobs:
         with:
           python-version: '3.11'
           architecture: x64
-      - name: Build portable package
+      - name: Run tests and validate Windows executable build
         shell: cmd
-        run: build_portable.bat
-      - name: Verify portable archive prerequisites
+        run: build_portable.bat --ci-check
+      - name: Check CI did not create a portable download
         shell: pwsh
         run: |
-          if (-not (Test-Path 'dist/HushPhoto-Windows-Portable.zip')) { throw 'Portable ZIP is missing' }
-          if (Test-Path 'dist/HushPhoto/native/afcclient.exe') { throw 'Unexpected third-party AFC binary in public CI artifact; review redistribution before publishing' }
-          '### Hush Photo Windows portable' >> $env:GITHUB_STEP_SUMMARY
-          'The CI artifact contains the application but does **not** bundle libimobiledevice/AFC executables or DLLs. USB access requires separately supplied compatible tools and Apple Mobile Device Support.' >> $env:GITHUB_STEP_SUMMARY
-      - name: Upload portable ZIP (requires external AFC tools)
-        uses: actions/upload-artifact@v4
-        with:
-          name: HushPhoto-Windows-Portable-Requires-AFC-Tools
-          path: dist/HushPhoto-Windows-Portable.zip
-          if-no-files-found: error
+          if (-not (Test-Path 'dist/HushPhoto/HushPhoto.exe')) { throw 'EXE build missing' }
+          if (Test-Path 'dist/HushPhoto-Windows-Portable.zip') { throw 'CI must not package incomplete USB releases' }
+          '### Windows CI passed' >> $env:GITHUB_STEP_SUMMARY
+          'Tests and Windows executable compilation succeeded. No downloadable portable ZIP was created or published. A release for iPhone USB export requires verified compatible native AFC components and redistribution review.' >> $env:GITHUB_STEP_SUMMARY
