@@ -127,7 +127,7 @@ py -m unittest -q tests_next tests_preview_cache test_media_groups tests_iphone_
 
 如果 `HUSH_AFC_TOOLS` 指向包含 `afcclient.exe` 的目录，或仓库中有 `native\afcclient.exe`，构建脚本会将相应的 EXE 和 DLL 复制到便携版。移至其他电脑时，必须解压**完整**的 `HushPhoto` 文件夹，不能只复制 EXE。
 
-**关于 GitHub Actions 构建：**名为 `HushPhoto-Windows-Portable-Requires-AFC-Tools` 的构建产物有意不包含第三方 libimobiledevice EXE/DLL。它可用于处理本地文件夹；通过 USB 导出 iPhone 文件还需要另外提供匹配的 `afcclient.exe`、DLL 和 Apple Mobile Device Support（见上文“配置 USB 工具”）。EXE 构建成功并不代表已验证 USB 连接。
+**GitHub Actions 仅用于持续集成检查：**运行测试，并使用 `build_portable.bat --ci-check` 验证 Windows EXE 是否能够构建。由于 USB 导出需要经过验证的 native/AFC 组件，CI **不会创建或发布供用户下载的 ZIP**。如果提供兼容的 USB 工具，可以在本地执行 `build_portable.bat` 打包；对外发布前仍需验证实际 USB 导出能力。
 
 ## 常见问题
 
