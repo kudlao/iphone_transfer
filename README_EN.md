@@ -117,17 +117,15 @@ py -m unittest -q tests_next tests_preview_cache test_media_groups tests_iphone_
 
 GUI tests require an interactive Windows session. Physical USB export still needs testing with an actual iPhone.
 
-**Create a portable package:**
+**Build portable on your own Windows PC:**
+
+Before building, put a compatible `afcclient.exe` and its DLLs under the project's `native` directory (preferably with `idevice_id.exe`), or point `HUSH_AFC_TOOLS` to their directory. Apple Mobile Device Support is also required for iPhone access.
 
 ```powershell
 .\build_portable.bat
 ```
 
-The build script reuses `.build-venv`, installs required packages, runs the tests, creates `dist\HushPhoto`, and packages `dist\HushPhoto-Windows-Portable.zip`. It reports five named stages for troubleshooting. Close any running `HushPhoto.exe` before rebuilding.
-
-If `HUSH_AFC_TOOLS` points to a directory containing `afcclient.exe`, or if `native\afcclient.exe` is present in the repository, matching EXE and DLL files are copied into the portable directory. On another PC, extract the **entire** `HushPhoto` folder; the EXE alone is insufficient.
-
-**GitHub Actions is CI only:** it runs tests and verifies the Windows executable build using `build_portable.bat --ci-check`. It does **not create or publish a user-downloadable ZIP** because USB export, the app's primary purpose, requires validated native/AFC components. A local `build_portable.bat` invocation can still package a ZIP with separately supplied compatible tools; such a package needs validation before public release.
+The script locally creates a Python environment, installs dependencies, runs tests, and builds `dist\HushPhoto` and `dist\HushPhoto-Windows-Portable.zip`. Copy the **entire** package, not just the EXE. If AFC tools were not supplied, the ZIP is still created but iPhone USB export will not work. Close `HushPhoto.exe` before rebuilding.
 
 ## Troubleshooting
 
