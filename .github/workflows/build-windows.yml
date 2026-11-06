@@ -22,9 +22,16 @@ jobs:
       - name: Build portable package
         shell: cmd
         run: build_portable.bat
-      - name: Upload portable ZIP
+      - name: Verify portable archive prerequisites
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'dist/HushPhoto-Windows-Portable.zip')) { throw 'Portable ZIP is missing' }
+          if (Test-Path 'dist/HushPhoto/native/afcclient.exe') { throw 'Unexpected third-party AFC binary in public CI artifact; review redistribution before publishing' }
+          '### Hush Photo Windows portable' >> $env:GITHUB_STEP_SUMMARY
+          'The CI artifact contains the application but does **not** bundle libimobiledevice/AFC executables or DLLs. USB access requires separately supplied compatible tools and Apple Mobile Device Support.' >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload portable ZIP (requires external AFC tools)
         uses: actions/upload-artifact@v4
         with:
-          name: HushPhoto-Windows-Portable
+          name: HushPhoto-Windows-Portable-Requires-AFC-Tools
           path: dist/HushPhoto-Windows-Portable.zip
           if-no-files-found: error
