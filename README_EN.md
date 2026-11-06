@@ -127,7 +127,7 @@ The build script reuses `.build-venv`, installs required packages, runs the test
 
 If `HUSH_AFC_TOOLS` points to a directory containing `afcclient.exe`, or if `native\afcclient.exe` is present in the repository, matching EXE and DLL files are copied into the portable directory. On another PC, extract the **entire** `HushPhoto` folder; the EXE alone is insufficient.
 
-**Important — GitHub Actions builds:** the `HushPhoto-Windows-Portable-Requires-AFC-Tools` artifact deliberately excludes third-party libimobiledevice EXEs/DLLs. It can process local folders, but USB exporting requires separately supplied compatible `afcclient.exe` and DLLs, plus Apple Mobile Device Support (see “Configure USB tools” above). A successful EXE build is not proof of USB connectivity.
+**GitHub Actions is CI only:** it runs tests and verifies the Windows executable build using `build_portable.bat --ci-check`. It does **not create or publish a user-downloadable ZIP** because USB export, the app's primary purpose, requires validated native/AFC components. A local `build_portable.bat` invocation can still package a ZIP with separately supplied compatible tools; such a package needs validation before public release.
 
 ## Troubleshooting
 
