@@ -117,17 +117,15 @@ py -m unittest -q tests_next tests_preview_cache test_media_groups tests_iphone_
 
 图形界面测试需要运行中的 Windows 桌面会话。实际 USB 导出仍需使用真实 iPhone 验证。
 
-**创建便携版：**
+**在自己的 Windows 电脑上构建便携版：**
+
+构建前，请将兼容的 `afcclient.exe` 及其 DLL 放入项目根目录的 `native` 文件夹（建议同时放入 `idevice_id.exe`），或通过 `HUSH_AFC_TOOLS` 指定工具目录。访问 iPhone 还需要 Apple Mobile Device Support。
 
 ```powershell
 .\build_portable.bat
 ```
 
-脚本复用 `.build-venv` 环境、安装依赖并运行测试，随后生成 `dist\HushPhoto` 及压缩包 `dist\HushPhoto-Windows-Portable.zip`。构建过程分为五个步骤，便于定位错误。重新构建前请关闭正在运行的 `HushPhoto.exe`。
-
-如果 `HUSH_AFC_TOOLS` 指向包含 `afcclient.exe` 的目录，或仓库中有 `native\afcclient.exe`，构建脚本会将相应的 EXE 和 DLL 复制到便携版。移至其他电脑时，必须解压**完整**的 `HushPhoto` 文件夹，不能只复制 EXE。
-
-**GitHub Actions 仅用于持续集成检查：**运行测试，并使用 `build_portable.bat --ci-check` 验证 Windows EXE 是否能够构建。由于 USB 导出需要经过验证的 native/AFC 组件，CI **不会创建或发布供用户下载的 ZIP**。如果提供兼容的 USB 工具，可以在本地执行 `build_portable.bat` 打包；对外发布前仍需验证实际 USB 导出能力。
+脚本会在本地创建 Python 环境、安装依赖、运行测试，并生成 `dist\HushPhoto` 和 `dist\HushPhoto-Windows-Portable.zip`。请复制**整个**程序文件夹，不能只复制 EXE。如果没有提供 AFC 工具，虽然仍会创建 ZIP，但无法通过 USB 从 iPhone 导出文件。重新构建前请关闭 `HushPhoto.exe`。
 
 ## 常见问题
 
