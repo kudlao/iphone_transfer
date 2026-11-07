@@ -4,6 +4,8 @@
 
 [Русский](README.md) · [English](README_EN.md) · [简体中文](README_ZH.md)
 
+![Hush Photo — features and Windows interface overview](docs/images/hush-photo-en.png)
+
 Hush Photo is a free, open-source application for transferring media from an iPhone to a Windows 10/11 (x64) computer. It reads accessible files over USB using Apple File Conduit (AFC), provides a searchable media browser, preserves original files, and supports repeat exports after an interrupted transfer.
 
 You can also process photos and videos from a local folder. **Hush Photo is not a complete iPhone backup solution.**
