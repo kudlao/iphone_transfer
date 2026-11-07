@@ -8,6 +8,8 @@ Hush Photo 是一款适用于 Windows 10/11（x64）的免费开源媒体导出�
 
 应用也支持处理 Windows 本地文件夹中的照片和视频。**Hush Photo 不是完整的 iPhone 备份工具。**
 
+**界面示例：** [连接 iPhone、浏览媒体库及导出选项](docs/INTERFACE.md)（使用虚构媒体文件的示意图）。
+
 ## 主要功能
 
 - **照片与视频：** 支持导出 HEIC、HEIF、JPEG、PNG、TIFF、DNG、MOV 和 MP4；视频不重新编码。AFC 扫描器可以识别 AAE 附属文件，但界面不提供单独选择导出 AAE 的功能。
