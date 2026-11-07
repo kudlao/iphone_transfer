@@ -4,9 +4,13 @@
 
 [Русский](README.md) · [English](README_EN.md) · [简体中文](README_ZH.md)
 
+![Hush Photo — 功能与 Windows 界面概览](docs/images/hush-photo-zh.png)
+
 Hush Photo 是一款适用于 Windows 10/11（x64）的免费开源媒体导出工具。它通过 USB 和 Apple File Conduit（AFC）读取 iPhone 上可访问的文件，提供媒体浏览、文件选择、原始格式保存及中断后重新导出的功能。
 
 应用也支持处理 Windows 本地文件夹中的照片和视频。**Hush Photo 不是完整的 iPhone 备份工具。**
+
+**界面示例：** [连接 iPhone、浏览媒体库及导出选项](docs/INTERFACE.md)（使用虚构媒体文件的示意图）。
 
 ## 主要功能
 
@@ -28,6 +32,8 @@ Hush Photo 是一款适用于 Windows 10/11（x64）的免费开源媒体导出�
 | USB 访问 | Apple Mobile Device Support 及兼容的 Windows 版 libimobiledevice |
 | 源码运行 | 建议使用 Python 3.11 x64；依赖见 `requirements.txt` |
 | 便携版 | 解压生成的完整 `HushPhoto` 文件夹；目标电脑无需安装 Python |
+
+**USB 导出必备组件：** 需要 Apple Mobile Device Support 及兼容的 Windows 版 libimobiledevice。如何指定已安装的工具及库文件路径，请参阅下方[“配置 USB 工具”](#配置-usb-工具)。
 
 请在 Windows 安装 Apple Devices，或其他提供 Apple Mobile Device Support 的 Apple 官方组件。驱动程序及第三方 USB 工具可能影响设备识别。
 
@@ -117,15 +123,15 @@ py -m unittest -q tests_next tests_preview_cache test_media_groups tests_iphone_
 
 图形界面测试需要运行中的 Windows 桌面会话。实际 USB 导出仍需使用真实 iPhone 验证。
 
-**创建便携版：**
+**在自己的 Windows 电脑上构建便携版：**
+
+构建前，请将兼容的 `afcclient.exe` 及其 DLL 放入项目根目录的 `native` 文件夹（建议同时放入 `idevice_id.exe`），或通过 `HUSH_AFC_TOOLS` 指定工具目录。访问 iPhone 还需要 Apple Mobile Device Support。
 
 ```powershell
 .\build_portable.bat
 ```
 
-脚本复用 `.build-venv` 环境、安装依赖并运行测试，随后生成 `dist\HushPhoto` 及压缩包 `dist\HushPhoto-Windows-Portable.zip`。构建过程分为五个步骤，便于定位错误。重新构建前请关闭正在运行的 `HushPhoto.exe`。
-
-如果 `HUSH_AFC_TOOLS` 指向包含 `afcclient.exe` 的目录，或仓库中有 `native\afcclient.exe`，构建脚本会将相应的 EXE 和 DLL 复制到便携版。移至其他电脑时，必须解压**完整**的 `HushPhoto` 文件夹，不能只复制 EXE。
+脚本会在本地创建 Python 环境、安装依赖、运行测试，并生成 `dist\HushPhoto` 和 `dist\HushPhoto-Windows-Portable.zip`。请复制**整个**程序文件夹，不能只复制 EXE。如果没有提供 AFC 工具，虽然仍会创建 ZIP，但无法通过 USB 从 iPhone 导出文件。重新构建前请关闭 `HushPhoto.exe`。
 
 ## 常见问题
 

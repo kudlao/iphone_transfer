@@ -4,9 +4,13 @@
 
 [Русский](README.md) · [English](README_EN.md) · [简体中文](README_ZH.md)
 
+![Hush Photo — features and Windows interface overview](docs/images/hush-photo-en.png)
+
 Hush Photo is a free, open-source application for transferring media from an iPhone to a Windows 10/11 (x64) computer. It reads accessible files over USB using Apple File Conduit (AFC), provides a searchable media browser, preserves original files, and supports repeat exports after an interrupted transfer.
 
 You can also process photos and videos from a local folder. **Hush Photo is not a complete iPhone backup solution.**
+
+**Interface examples:** [iPhone connection, media browser, and export options](docs/INTERFACE.md) (illustrative screenshots with synthetic media).
 
 ## Features
 
@@ -28,6 +32,8 @@ You can also process photos and videos from a local folder. **Hush Photo is not 
 | USB access | Apple Mobile Device Support and a compatible Windows build of libimobiledevice |
 | Source installation | Python 3.11 x64 recommended; packages in `requirements.txt` |
 | Portable package | The complete `HushPhoto` folder from the generated archive; Python is not required on the target PC |
+
+**USB export prerequisite:** Apple Mobile Device Support and a compatible Windows build of libimobiledevice are required. See [Configure USB tools](#configure-usb-tools) below for supported ways to locate the installed utilities and libraries.
 
 Install Apple Devices on Windows, or another official Apple component providing Apple Mobile Device Support. Drivers and third-party USB tools can affect device access.
 
@@ -117,15 +123,15 @@ py -m unittest -q tests_next tests_preview_cache test_media_groups tests_iphone_
 
 GUI tests require an interactive Windows session. Physical USB export still needs testing with an actual iPhone.
 
-**Create a portable package:**
+**Build portable on your own Windows PC:**
+
+Before building, put a compatible `afcclient.exe` and its DLLs under the project's `native` directory (preferably with `idevice_id.exe`), or point `HUSH_AFC_TOOLS` to their directory. Apple Mobile Device Support is also required for iPhone access.
 
 ```powershell
 .\build_portable.bat
 ```
 
-The build script reuses `.build-venv`, installs required packages, runs the tests, creates `dist\HushPhoto`, and packages `dist\HushPhoto-Windows-Portable.zip`. It reports five named stages for troubleshooting. Close any running `HushPhoto.exe` before rebuilding.
-
-If `HUSH_AFC_TOOLS` points to a directory containing `afcclient.exe`, or if `native\afcclient.exe` is present in the repository, matching EXE and DLL files are copied into the portable directory. On another PC, extract the **entire** `HushPhoto` folder; the EXE alone is insufficient.
+The script locally creates a Python environment, installs dependencies, runs tests, and builds `dist\HushPhoto` and `dist\HushPhoto-Windows-Portable.zip`. Copy the **entire** package, not just the EXE. If AFC tools were not supplied, the ZIP is still created but iPhone USB export will not work. Close `HushPhoto.exe` before rebuilding.
 
 ## Troubleshooting
 

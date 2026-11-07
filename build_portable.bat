@@ -1,6 +1,15 @@
 @echo off
 setlocal EnableExtensions
 cd /d "%~dp0"
+set "CI_CHECK=0"
+if not "%~1"=="" (
+ if /I "%~1"=="--ci-check" (
+  set "CI_CHECK=1"
+ ) else (
+  echo ERROR: Unknown option %~1. Use --ci-check or no arguments.
+  exit /b 2
+ )
+)
 echo.
 echo ===== Hush Photo - portable Windows build =====
 echo Source: %CD%
@@ -42,6 +51,12 @@ if errorlevel 1 goto :failed
 if not exist "dist\HushPhoto\HushPhoto.exe" (
  echo ERROR: HushPhoto.exe not found in dist.
  goto :failed
+)
+
+if "%CI_CHECK%"=="1" (
+ echo CI verification PASS: tests and EXE build succeeded.
+ echo No portable ZIP is created or published in CI mode.
+ exit /b 0
 )
 
 set "AFC_DIR="
