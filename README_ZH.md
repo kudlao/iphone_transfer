@@ -31,6 +31,8 @@ Hush Photo 是一款适用于 Windows 10/11（x64）的免费开源媒体导出�
 | 源码运行 | 建议使用 Python 3.11 x64；依赖见 `requirements.txt` |
 | 便携版 | 解压生成的完整 `HushPhoto` 文件夹；目标电脑无需安装 Python |
 
+**USB 导出必备组件：** 需要 Apple Mobile Device Support 及兼容的 Windows 版 libimobiledevice。如何指定已安装的工具及库文件路径，请参阅下方[“配置 USB 工具”](#配置-usb-工具)。
+
 请在 Windows 安装 Apple Devices，或其他提供 Apple Mobile Device Support 的 Apple 官方组件。驱动程序及第三方 USB 工具可能影响设备识别。
 
 ### 配置 USB 工具
