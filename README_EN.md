@@ -8,6 +8,8 @@ Hush Photo is a free, open-source application for transferring media from an iPh
 
 You can also process photos and videos from a local folder. **Hush Photo is not a complete iPhone backup solution.**
 
+**Interface examples:** [iPhone connection, media browser, and export options](docs/INTERFACE.md) (illustrative screenshots with synthetic media).
+
 ## Features
 
 - **Photos and videos:** export HEIC, HEIF, JPEG, PNG, TIFF, DNG, MOV, and MP4. Videos are copied without transcoding. The AFC scanner can detect AAE sidecars, but the picker does not offer them for separate export.
