@@ -31,6 +31,8 @@ You can also process photos and videos from a local folder. **Hush Photo is not 
 | Source installation | Python 3.11 x64 recommended; packages in `requirements.txt` |
 | Portable package | The complete `HushPhoto` folder from the generated archive; Python is not required on the target PC |
 
+**USB export prerequisite:** Apple Mobile Device Support and a compatible Windows build of libimobiledevice are required. See [Configure USB tools](#configure-usb-tools) below for supported ways to locate the installed utilities and libraries.
+
 Install Apple Devices on Windows, or another official Apple component providing Apple Mobile Device Support. Drivers and third-party USB tools can affect device access.
 
 ### Configure USB tools
