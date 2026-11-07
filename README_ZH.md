@@ -4,6 +4,8 @@
 
 [Русский](README.md) · [English](README_EN.md) · [简体中文](README_ZH.md)
 
+![Hush Photo — 功能与 Windows 界面概览](docs/images/hush-photo-zh.png)
+
 Hush Photo 是一款适用于 Windows 10/11（x64）的免费开源媒体导出工具。它通过 USB 和 Apple File Conduit（AFC）读取 iPhone 上可访问的文件，提供媒体浏览、文件选择、原始格式保存及中断后重新导出的功能。
 
 应用也支持处理 Windows 本地文件夹中的照片和视频。**Hush Photo 不是完整的 iPhone 备份工具。**
